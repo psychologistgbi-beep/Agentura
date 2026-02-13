@@ -8,6 +8,7 @@ import typer
 from rich import print
 from sqlmodel import Session, select
 
+from executive_cli.config import list_settings, upsert_setting
 from executive_cli.db import (
     PRIMARY_CALENDAR_SLUG,
     get_engine,
@@ -23,7 +24,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 busy_app = typer.Typer(help="Manage busy blocks in the primary calendar.")
+config_app = typer.Typer(help="Manage assistant settings.")
 app.add_typer(busy_app, name="busy")
+app.add_typer(config_app, name="config")
 
 
 @dataclass
@@ -163,6 +166,28 @@ def busy_list(
     print(f"[bold]Busy blocks for {local_date.isoformat()} (Europe/Moscow):[/bold]")
     for item in merged:
         print(f"- {item.start_dt.strftime('%H:%M')}–{item.end_dt.strftime('%H:%M')} | {item.title}")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Print all settings as key=value, sorted by key."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        settings = list_settings(session)
+
+    for setting in settings:
+        typer.echo(f"{setting.key}={setting.value}")
+
+
+@config_app.command("set")
+def config_set(key: str, value: str) -> None:
+    """Validate and upsert a setting."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        try:
+            setting = upsert_setting(session, key=key, value=value)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    typer.echo(f"{setting.key}={setting.value}")
 
 
 def main() -> None:
