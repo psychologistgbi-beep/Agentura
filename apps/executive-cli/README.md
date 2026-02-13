@@ -31,3 +31,14 @@ cd apps/executive-cli
 uv run execas --help
 uv run execas init
 ```
+
+## Verification
+
+```bash
+cd apps/executive-cli
+rm -f .data/execas.sqlite && uv run execas init
+uv run execas init
+sqlite3 .data/execas.sqlite ".tables"
+sqlite3 .data/execas.sqlite "SELECT key, value FROM settings ORDER BY key;"
+sqlite3 .data/execas.sqlite "SELECT slug, COUNT(*) FROM calendars GROUP BY slug;"
+```
