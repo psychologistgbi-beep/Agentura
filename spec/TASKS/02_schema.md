@@ -25,9 +25,10 @@ Introduce SQLite data layer foundations for MVP:
   - safe to run twice (no duplicate primary calendar; no crash)
 
 ## Out of scope
-- FTS5 (People/Decisions) — next task(s).
-- Planning algorithm.
-- MCP integrations.
+- FTS5 (People/Decisions) — TASK 09.
+- Planning algorithm — TASK 07.
+- MCP integrations — TASK 11.
+- people, decisions, emails tables — later tasks.
 
 ## Files to touch (expected)
 - apps/executive-cli/pyproject.toml (deps)

@@ -39,22 +39,23 @@ C1. System timezone is Europe/Moscow.
 - All CLI inputs without explicit timezone are interpreted as Europe/Moscow.
 - All CLI outputs are displayed in Europe/Moscow.
 
-C2. Persisted datetimes are timezone-aware (offset preserved) OR stored in UTC with explicit conversion rules; the chosen strategy is documented and tested.
+C2. Persisted datetimes are stored as ISO-8601 TEXT with explicit offset (ADR-01). Round-trip test: MSK input -> DB -> MSK output preserves value.
 
-C3. Busy block overlap handling:
+C3. Busy block overlap handling (ADR-03):
+- Merge is performed on read (not on insert); raw blocks preserved.
 - Overlapping or adjacent busy blocks are merged deterministically.
 - No negative-duration blocks can exist.
 
 ## D. Settings (No “Hidden Defaults” Beyond Spec)
 D1. All planning parameters are stored in DB settings and can be shown/changed via CLI.
-Minimum required keys:
+Minimum required keys and defaults:
 - timezone = Europe/Moscow
-- planning window (07:00–19:00)
-- quiet window (19:00–07:00) (can be stored as a constraint)
-- lunch_start default 12:00
-- lunch_duration_min default 60
-- min_focus_block_min default 30 (includes switching overhead)
-- buffer_min (single global buffer for MVP)
+- planning_start = 07:00
+- planning_end = 19:00
+- lunch_start = 12:00
+- lunch_duration_min = 60
+- min_focus_block_min = 30 (includes switching overhead)
+- buffer_min = 5
 
 D2. `execas config show` prints all current settings.
 D3. `execas config set` updates a setting and the change is persisted.
@@ -73,7 +74,8 @@ E3. WAITING tasks must include:
 - ping_at (datetime, Europe/Moscow)
 
 E4. Areas and Projects exist as reference data (not free-text):
-- Can create/list/select areas/projects from CLI.
+- `execas area add/list` and `execas project add/list` work.
+- Projects optionally link to an area.
 - Tasks can link to project/area.
 
 E5. Task listing supports filters at least by:
@@ -85,7 +87,7 @@ E5. Task listing supports filters at least by:
 ## F. Commitments
 F1. Commitments can be created/stored and linked to tasks.
 F2. Commitments include: id (YC-*), title, definition_of_done/metric, due_date, difficulty, notes/evidence.
-F3. For MVP, commitments from TECH_SPEC are present (at least YC-1, YC-2, YC-3) OR there is a documented import command/workflow.
+F3. `execas commitment add/list/import` commands exist. `execas commitment import` seeds YC-1..YC-3 idempotently.
 
 ## G. Primary Calendar & Busy Blocks
 G1. There is exactly one primary calendar in MVP.
@@ -109,8 +111,11 @@ H3. Planning respects constraints:
 - Blocks shorter than min_focus_block_min are not used for focus; they become buffer/admin.
 - Buffer is inserted according to buffer_min policy (MVP: single global buffer).
 
-H4. Determinism:
-Given the same inputs (tasks, busy blocks, settings), the produced plan is identical.
+H4. Determinism (ADR-06):
+Given the same inputs (tasks, busy blocks, settings), the produced plan is identical. No LLM is used in `plan day`.
+
+H4a. Day plan upsert (ADR-05):
+Re-running `plan day` for the same (date, variant) replaces the previous plan.
 
 H5. Output includes a short rationale:
 - Which tasks were chosen and why (priority, due, commitment).

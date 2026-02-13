@@ -20,20 +20,21 @@ Three layers:
 3) Execution layer (CLI): commands to capture/triage tasks, sync calendar/email, produce plans and weekly review outputs.
 
 LLM usage:
-- LLM is used to generate proposals (daily plan variants, weekly priorities, drafting follow-ups).
+- `plan day` is **deterministic** (no LLM); variant selection and task ranking use fixed rules.
+- LLM is used for: weekly review narrative, drafting follow-ups, and future "smart suggest" features.
 - The system state remains in SQLite; LLM output must be translated into explicit DB updates.
 
 ## 3) Time model & timezone
 - Primary timezone: Europe/Moscow.
 - All CLI inputs/outputs are interpreted in Europe/Moscow unless explicitly specified.
-- Store timestamps as timezone-aware ISO strings (or SQLite datetime + offset); conversions must be tested.
+- **Storage format (ADR-01):** store all datetimes as ISO-8601 strings with explicit offset (e.g. `2026-02-15T10:00:00+03:00`). SQLite column type `TEXT`. Comparison/sorting uses lexicographic order on UTC-normalised values via application code. Conversions must be tested.
 
 ## 4) Scheduling constraints (initial values, user-configurable)
 - Planning window: every day 07:00–19:00 (life planning: business + hobby + family + rest).
 - Quiet window: 19:00–07:00 (no scheduled work blocks by default; can be overridden later).
 - Lunch: default 12:00, duration 60 minutes, movable.
 - Minimum focus block: 30 minutes INCLUDING 5 minutes switching overhead.
-- Buffer policy: TBD clarification from earlier; for MVP use a single fixed buffer_minutes setting, applied between non-busy blocks and around meetings. Allow later extension per block type.
+- Buffer policy: MVP uses a single `buffer_min` setting (default **5** minutes), applied between adjacent scheduled blocks. Allow later extension per block type.
 
 All these values must be stored in DB settings and modifiable via CLI.
 
@@ -105,12 +106,23 @@ Core commands:
   - creates SQLite DB, runs migrations, seeds primary calendar + default settings (timezone=Europe/Moscow)
 - execas config show
 - execas config set <key> <value>
-  Keys include planning_window, lunch_start, lunch_duration_min, buffer_min, timezone, min_focus_block_min
+  Keys include planning_start (HH:MM), planning_end (HH:MM), lunch_start, lunch_duration_min, buffer_min, timezone, min_focus_block_min
 
 Calendar:
 - execas calendar sync   (via MCP CalDAV; updates busy_blocks)
 - execas busy add --date YYYY-MM-DD --start HH:MM --end HH:MM --title "..."
 - execas busy list --date YYYY-MM-DD
+
+Areas & Projects:
+- execas area add "name"
+- execas area list
+- execas project add "name" [--area "area_name"]
+- execas project list
+
+Commitments:
+- execas commitment add --id YC-N --title "..." --metric "..." --due YYYY-MM-DD --difficulty DN [--notes "..."]
+- execas commitment list
+- execas commitment import   (seed YC-1..YC-3 from spec; idempotent)
 
 Tasks:
 - execas task capture "title" --estimate 30 --priority P2 [--project X] [--area Y] [--commitment YC-1]
@@ -132,9 +144,14 @@ Outputs:
 - Print a time-block schedule with timestamps and block type.
 - Also store day_plan + time_blocks in DB.
 
+Email:
+- execas mail sync   (via MCP IMAP; read-only inbox metadata sync)
+- execas mail list   (show recent synced email headers)
+
 Weekly:
 - execas review week --week YYYY-Www
   - Sunday ritual: propose weekly priorities (top 5–10) derived from commitments + inflow + deadlines + waiting pings.
+  - Algorithm: rank candidates by (has_commitment × 3 + is_overdue × 2 + priority_score), take top 10, output as markdown.
   - Output as markdown, store summary in DB.
 
 ## 11) Planning algorithm (deterministic)
@@ -161,6 +178,9 @@ Edge cases:
 - Tiny gaps < min_focus_block -> mark as buffer/admin, do not schedule focus.
 - Overlapping busy blocks -> merge.
 
+Busy block merge timing (ADR-03):
+- Merge is performed **on read** (at query/plan time), not on insert. Raw blocks are stored as-is; merged view is computed. This preserves source fidelity for CalDAV sync.
+
 ## 12) Data schema (SQLite)
 Tables (minimum):
 - settings(key TEXT PRIMARY KEY, value TEXT)
@@ -174,11 +194,14 @@ Tables (minimum):
 - time_blocks(id, day_plan_id FK, start_dt, end_dt, type, task_id nullable, label)
 - people(id, name, org, role, notes, created_at)
 - decisions(id, title, context, choice, consequences, created_at)
-- emails(id, message_id, subject, from, received_at, snippet, raw_ref)
+- emails(id, message_id, subject, sender, received_at, snippet, raw_ref)
 
-FTS:
-- people_fts
-- decisions_fts
+FTS (ADR-04):
+- people_fts(name, org, role, notes) — content table = people
+- decisions_fts(title, context, choice, consequences) — content table = decisions
+
+Day plan upsert policy (ADR-05):
+- Re-running `plan day` for an existing (date, variant) **replaces** the previous plan (DELETE + INSERT). Only the latest plan is kept per (date, variant).
 
 ## 13) Quality gates
 - Unit tests for:
