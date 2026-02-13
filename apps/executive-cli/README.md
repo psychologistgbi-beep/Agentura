@@ -36,7 +36,7 @@ uv run execas init
 
 ```bash
 cd apps/executive-cli
-rm -f .data/execas.sqlite && uv run execas init
+rm -f .data/execas.sqlite
 uv run execas init
 sqlite3 .data/execas.sqlite ".tables"
 sqlite3 .data/execas.sqlite "SELECT key, value FROM settings ORDER BY key;"
