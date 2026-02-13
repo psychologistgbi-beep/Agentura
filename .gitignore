@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Working / generated artifacts
+inputs/
+outputs/
+logs/
+agent-sandbox/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Python / Node noise (future-proof)
+.venv/
+__pycache__/
+*.pyc
+node_modules/
