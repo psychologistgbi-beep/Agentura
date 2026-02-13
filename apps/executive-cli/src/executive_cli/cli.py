@@ -14,7 +14,7 @@ from executive_cli.db import (
     get_engine,
     initialize_database,
 )
-from executive_cli.models import BusyBlock, Calendar
+from executive_cli.models import Area, BusyBlock, Calendar, Commitment, Project
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -23,10 +23,16 @@ app = typer.Typer(
     help="Executive Assistant CLI.",
     no_args_is_help=True,
 )
+area_app = typer.Typer(help="Manage areas (reference data).")
 busy_app = typer.Typer(help="Manage busy blocks in the primary calendar.")
+commitment_app = typer.Typer(help="Manage year commitments.")
 config_app = typer.Typer(help="Manage assistant settings.")
+project_app = typer.Typer(help="Manage projects (reference data).")
+app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
+app.add_typer(commitment_app, name="commitment")
 app.add_typer(config_app, name="config")
+app.add_typer(project_app, name="project")
 
 
 @dataclass
@@ -188,6 +194,253 @@ def config_set(key: str, value: str) -> None:
             raise typer.BadParameter(str(exc)) from exc
 
     typer.echo(f"{setting.key}={setting.value}")
+
+
+VALID_DIFFICULTIES = {"D1", "D2", "D3", "D4", "D5"}
+
+# Seed data from TECH_SPEC §6 — MVP commitments
+_SEED_COMMITMENTS: list[dict[str, str]] = [
+    {
+        "id": "YC-1",
+        "title": "Raise >=25M RUB investments in a venture project",
+        "metric": "by 31.12.2026 raised >= 25M RUB investments in a venture project where user is key initiator/founder",
+        "due_date": "2026-12-31",
+        "difficulty": "D3",
+    },
+    {
+        "id": "YC-2",
+        "title": "Create graphic art series and commercialize",
+        "metric": "by 31.12.2026 created a series of graphic art objects and commercialized them",
+        "due_date": "2026-12-31",
+        "difficulty": "D5",
+    },
+    {
+        "id": "YC-3",
+        "title": "4+ weeks in English-speaking professional environment",
+        "metric": "by 31.12.2026 spent >= 4 weeks in an English-speaking professional environment with recorded results in English",
+        "due_date": "2026-12-31",
+        "difficulty": "D4",
+    },
+]
+
+
+# --- Area commands ---
+
+
+@area_app.command("add")
+def area_add(name: str = typer.Argument(..., help="Area name.")) -> None:
+    """Add an area. Idempotent: returns existing record if name matches."""
+    trimmed = name.strip()
+    if not trimmed:
+        raise typer.BadParameter("Area name must not be empty.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        existing = session.exec(select(Area).where(Area.name == trimmed)).first()
+        if existing is not None:
+            typer.echo(f'id={existing.id} name="{existing.name}"')
+            return
+
+        area = Area(name=trimmed)
+        session.add(area)
+        session.commit()
+        session.refresh(area)
+        typer.echo(f'id={area.id} name="{area.name}"')
+
+
+@area_app.command("list")
+def area_list() -> None:
+    """List all areas sorted by name."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        areas = session.exec(select(Area).order_by(Area.name)).all()
+
+    if not areas:
+        typer.echo("No areas.")
+        return
+
+    for area in areas:
+        typer.echo(f'id={area.id} name="{area.name}"')
+
+
+# --- Project commands ---
+
+
+@project_app.command("add")
+def project_add(
+    name: str = typer.Argument(..., help="Project name."),
+    area_name: str | None = typer.Option(None, "--area", help="Area name to link."),
+) -> None:
+    """Add a project. Idempotent if same name+area; error on area conflict."""
+    trimmed = name.strip()
+    if not trimmed:
+        raise typer.BadParameter("Project name must not be empty.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        resolved_area_id: int | None = None
+        resolved_area_name: str = "-"
+
+        if area_name is not None:
+            area = session.exec(select(Area).where(Area.name == area_name.strip())).first()
+            if area is None:
+                raise typer.BadParameter(f'Area "{area_name.strip()}" not found. Create it first with: execas area add "{area_name.strip()}"')
+            resolved_area_id = area.id
+            resolved_area_name = area.name
+
+        existing = session.exec(select(Project).where(Project.name == trimmed)).first()
+        if existing is not None:
+            if existing.area_id == resolved_area_id:
+                existing_area_name = "-"
+                if existing.area_id is not None:
+                    ea = session.get(Area, existing.area_id)
+                    existing_area_name = ea.name if ea else "-"
+                typer.echo(f'id={existing.id} name="{existing.name}" area="{existing_area_name}"')
+                return
+            raise typer.BadParameter(
+                f'Project "{trimmed}" already exists with a different area (area_id={existing.area_id}). '
+                "Cannot overwrite. Delete or rename first."
+            )
+
+        project = Project(name=trimmed, area_id=resolved_area_id)
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+        typer.echo(f'id={project.id} name="{project.name}" area="{resolved_area_name}"')
+
+
+@project_app.command("list")
+def project_list() -> None:
+    """List all projects sorted by name, with area info."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        projects = session.exec(select(Project).order_by(Project.name)).all()
+
+        if not projects:
+            typer.echo("No projects.")
+            return
+
+        for proj in projects:
+            area_name = "-"
+            if proj.area_id is not None:
+                area = session.get(Area, proj.area_id)
+                if area:
+                    area_name = area.name
+            typer.echo(f'id={proj.id} name="{proj.name}" area="{area_name}"')
+
+
+# --- Commitment commands ---
+
+
+def _format_commitment(c: Commitment) -> str:
+    return f'id={c.id} due={c.due_date} difficulty={c.difficulty} title="{c.title}"'
+
+
+@commitment_app.command("add")
+def commitment_add(
+    cid: str = typer.Option(..., "--id", help="Commitment ID (e.g. YC-1)."),
+    title: str = typer.Option(..., "--title", help="Commitment title."),
+    metric: str = typer.Option(..., "--metric", help="Definition of done / metric."),
+    due: str = typer.Option(..., "--due", help="Due date YYYY-MM-DD."),
+    difficulty: str = typer.Option(..., "--difficulty", help="Difficulty D1..D5."),
+    notes: str | None = typer.Option(None, "--notes", help="Optional notes."),
+) -> None:
+    """Add a commitment. Idempotent if all fields match; error on conflict."""
+    trimmed_id = cid.strip()
+    if not trimmed_id:
+        raise typer.BadParameter("Commitment --id must not be empty.")
+
+    difficulty_upper = difficulty.strip().upper()
+    if difficulty_upper not in VALID_DIFFICULTIES:
+        raise typer.BadParameter(f"Invalid --difficulty: {difficulty}. Must be one of: D1, D2, D3, D4, D5.")
+
+    due_date = _parse_date(due)
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        existing = session.get(Commitment, trimmed_id)
+        if existing is not None:
+            # Check full identity for idempotent behavior
+            fields_match = (
+                existing.title == title.strip()
+                and existing.metric == metric.strip()
+                and existing.due_date == due_date
+                and existing.difficulty == difficulty_upper
+                and (existing.notes or None) == (notes.strip() if notes else None)
+            )
+            if fields_match:
+                typer.echo(_format_commitment(existing))
+                return
+            raise typer.BadParameter(
+                f'Commitment "{trimmed_id}" already exists with different fields. '
+                "Delete or update manually before re-adding."
+            )
+
+        commitment = Commitment(
+            id=trimmed_id,
+            title=title.strip(),
+            metric=metric.strip(),
+            due_date=due_date,
+            difficulty=difficulty_upper,
+            notes=notes.strip() if notes else None,
+        )
+        session.add(commitment)
+        session.commit()
+        session.refresh(commitment)
+        typer.echo(_format_commitment(commitment))
+
+
+@commitment_app.command("list")
+def commitment_list() -> None:
+    """List all commitments sorted by due_date then id."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        commitments = session.exec(
+            select(Commitment).order_by(Commitment.due_date, Commitment.id)
+        ).all()
+
+    if not commitments:
+        typer.echo("No commitments.")
+        return
+
+    for c in commitments:
+        typer.echo(_format_commitment(c))
+
+
+@commitment_app.command("import")
+def commitment_import() -> None:
+    """Seed YC-1..YC-3 from spec. Idempotent: skip existing, warn on conflicts."""
+    inserted = 0
+    skipped = 0
+    conflicts = 0
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        for seed in _SEED_COMMITMENTS:
+            existing = session.get(Commitment, seed["id"])
+            if existing is not None:
+                due_date = datetime.strptime(seed["due_date"], "%Y-%m-%d").date()
+                fields_match = (
+                    existing.title == seed["title"]
+                    and existing.metric == seed["metric"]
+                    and existing.due_date == due_date
+                    and existing.difficulty == seed["difficulty"]
+                    and existing.notes == seed.get("notes")
+                )
+                if fields_match:
+                    skipped += 1
+                else:
+                    conflicts += 1
+                    typer.echo(f'[yellow]CONFLICT:[/yellow] {seed["id"]} exists with different fields — skipping.', err=True)
+                continue
+
+            commitment = Commitment(
+                id=seed["id"],
+                title=seed["title"],
+                metric=seed["metric"],
+                due_date=datetime.strptime(seed["due_date"], "%Y-%m-%d").date(),
+                difficulty=seed["difficulty"],
+                notes=seed.get("notes"),
+            )
+            session.add(commitment)
+            inserted += 1
+
+        session.commit()
+
+    typer.echo(f"imported={inserted} skipped={skipped} conflicts={conflicts}")
 
 
 def main() -> None:
