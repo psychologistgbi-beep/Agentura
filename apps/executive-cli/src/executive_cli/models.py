@@ -161,3 +161,12 @@ class Decision(SQLModel, table=True):
     decided_date: date | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class WeeklyReview(SQLModel, table=True):
+    __tablename__ = "weekly_reviews"
+
+    id: int | None = Field(default=None, primary_key=True)
+    week: str = Field(unique=True)
+    created_at: str
+    body_md: str

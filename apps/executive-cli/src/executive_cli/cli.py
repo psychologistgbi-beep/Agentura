@@ -30,6 +30,7 @@ from executive_cli.models import (
     TaskStatus,
 )
 from executive_cli.planner import VALID_VARIANTS, build_and_persist_day_plan
+from executive_cli.review import build_and_persist_weekly_review, validate_week
 from executive_cli.timeutil import dt_to_db, parse_local_dt
 
 app = typer.Typer(
@@ -46,6 +47,7 @@ people_app = typer.Typer(help="Manage people (searchable via FTS).")
 project_app = typer.Typer(help="Manage projects (reference data).")
 task_app = typer.Typer(help="Manage GTD tasks.")
 plan_app = typer.Typer(help="Manage deterministic day planning.")
+review_app = typer.Typer(help="Weekly review reports.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(commitment_app, name="commitment")
@@ -53,6 +55,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(decision_app, name="decision")
 app.add_typer(people_app, name="people")
 app.add_typer(project_app, name="project")
+app.add_typer(review_app, name="review")
 app.add_typer(task_app, name="task")
 app.add_typer(plan_app, name="plan")
 
@@ -872,6 +875,32 @@ def task_done(
         session.commit()
         session.refresh(task)
         typer.echo(_format_task(task))
+
+
+@review_app.command("week")
+def review_week(
+    week: str = typer.Option(..., "--week", help="Week in YYYY-Www format (e.g. 2026-W07)."),
+    limit: int = typer.Option(10, "--limit", help="Max items in action list."),
+    proposals_count: int = typer.Option(5, "--proposals", help="Max NEXT→NOW proposals."),
+) -> None:
+    """Generate and persist a deterministic weekly review."""
+    try:
+        validated_week = validate_week(week.strip())
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    now = datetime.now(_utc_tz.utc)
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        body_md = build_and_persist_weekly_review(
+            session,
+            week=validated_week,
+            now=now,
+            limit=limit,
+            proposals=proposals_count,
+        )
+
+    typer.echo(body_md)
 
 
 def main() -> None:
