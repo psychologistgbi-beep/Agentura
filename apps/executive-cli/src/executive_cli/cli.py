@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone as _utc_tz
 from zoneinfo import ZoneInfo
 
@@ -8,6 +7,7 @@ import typer
 from rich import print
 from sqlmodel import Session, select
 
+from executive_cli.busy_service import merge_busy_blocks
 from executive_cli.config import list_settings, upsert_setting
 from executive_cli.db import (
     PRIMARY_CALENDAR_SLUG,
@@ -46,17 +46,6 @@ app.add_typer(project_app, name="project")
 app.add_typer(task_app, name="task")
 
 
-@dataclass
-class MergedBusyBlock:
-    start_dt: datetime
-    end_dt: datetime
-    title_parts: list[str]
-
-    @property
-    def title(self) -> str:
-        return " | ".join(self.title_parts)
-
-
 def _parse_date(value: str) -> datetime.date:
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -76,37 +65,6 @@ def _get_primary_calendar(session: Session) -> Calendar:
     if calendar is None:
         raise typer.BadParameter("Primary calendar is not initialized. Run 'execas init' first.")
     return calendar
-
-
-def _merge_busy_blocks(rows: list[BusyBlock]) -> list[MergedBusyBlock]:
-    parsed_rows = sorted(
-        rows,
-        key=lambda row: (
-            datetime.fromisoformat(row.start_dt),
-            row.id if row.id is not None else -1,
-        ),
-    )
-
-    merged: list[MergedBusyBlock] = []
-    for row in parsed_rows:
-        start_dt = datetime.fromisoformat(row.start_dt)
-        end_dt = datetime.fromisoformat(row.end_dt)
-        row_title = row.title or "(untitled)"
-
-        if not merged:
-            merged.append(MergedBusyBlock(start_dt=start_dt, end_dt=end_dt, title_parts=[row_title]))
-            continue
-
-        current = merged[-1]
-        if start_dt <= current.end_dt:
-            if end_dt > current.end_dt:
-                current.end_dt = end_dt
-            current.title_parts.append(row_title)
-            continue
-
-        merged.append(MergedBusyBlock(start_dt=start_dt, end_dt=end_dt, title_parts=[row_title]))
-
-    return merged
 
 
 @app.callback()
@@ -175,7 +133,7 @@ def busy_list(
             .order_by(BusyBlock.start_dt, BusyBlock.id)
         ).all()
 
-    merged = _merge_busy_blocks(rows)
+    merged = merge_busy_blocks(rows)
     if not merged:
         print(f"[yellow]No busy blocks for {local_date.isoformat()}[/yellow]")
         return
