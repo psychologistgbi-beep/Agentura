@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, Column, Enum as SQLEnum
+from sqlalchemy import CheckConstraint, Column, Enum as SQLEnum, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -108,3 +108,28 @@ class Task(SQLModel, table=True):
     ping_at: str | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class DayPlan(SQLModel, table=True):
+    __tablename__ = "day_plans"
+    __table_args__ = (
+        UniqueConstraint("date", "variant", name="uq_day_plans_date_variant"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    date: date
+    variant: str  # "minimal" | "realistic" | "aggressive"
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    source: str = Field(default="planner")
+
+
+class TimeBlock(SQLModel, table=True):
+    __tablename__ = "time_blocks"
+
+    id: int | None = Field(default=None, primary_key=True)
+    day_plan_id: int = Field(foreign_key="day_plans.id", index=True)
+    start_dt: str
+    end_dt: str
+    type: str  # "busy" | "focus" | "lunch" | "buffer" | "admin"
+    task_id: int | None = Field(default=None, foreign_key="tasks.id")
+    label: str | None = None
