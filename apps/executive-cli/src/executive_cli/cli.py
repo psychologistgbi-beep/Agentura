@@ -209,17 +209,26 @@ def plan_day(
     if result.lunch_skipped:
         print("Note: lunch skipped (no feasible slot).")
 
+    print("Selected tasks:")
     if result.selected_tasks:
-        selected_items = []
         for task in result.selected_tasks:
-            item = f"{task.title} ({task.priority.value}"
+            item = f"- {task.title} ({task.priority.value}, {task.estimate_min}m"
             if task.due_date is not None:
-                item += f" due {task.due_date.isoformat()}"
+                item += f", due {task.due_date.isoformat()}"
             item += ")"
-            selected_items.append(item)
-        print(f"Selected tasks: {', '.join(selected_items)}")
+            print(item)
     else:
-        print("Selected tasks: none")
+        print("- none")
+
+    print("Didn't fit:")
+    if result.didnt_fit_tasks:
+        for task in result.didnt_fit_tasks:
+            print(f"- {task.title}: {task.reason}")
+    else:
+        print("- none")
+
+    if result.suggestions_text is not None:
+        print(f"Suggestions: {result.suggestions_text}")
 
 
 VALID_DIFFICULTIES = {"D1", "D2", "D3", "D4", "D5"}

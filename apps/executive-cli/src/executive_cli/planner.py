@@ -28,6 +28,12 @@ _TASK_STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.NEXT: 1,
 }
 
+_VARIANT_FILL_RATIO: dict[str, float] = {
+    "minimal": 0.50,
+    "realistic": 0.75,
+    "aggressive": 0.95,
+}
+
 
 @dataclass(frozen=True)
 class PlannerSettings:
@@ -39,12 +45,6 @@ class PlannerSettings:
     lunch_duration_min: int
     buffer_min: int
     min_focus_block_min: int
-
-
-@dataclass(frozen=True)
-class VariantCaps:
-    max_blocks: int
-    max_focus_minutes: int
 
 
 @dataclass
@@ -63,22 +63,33 @@ class ScheduledBlock:
 
 
 @dataclass(frozen=True)
+class SelectedTaskSummary:
+    id: int
+    title: str
+    priority: TaskPriority
+    due_date: date | None
+    estimate_min: int
+
+
+@dataclass(frozen=True)
+class DidntFitTaskSummary:
+    id: int
+    title: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class DayPlanResult:
     plan_date: date
     variant: str
     timezone_name: str
     timezone: ZoneInfo
     blocks: list[ScheduledBlock]
-    selected_tasks: list["SelectedTaskSummary"]
+    selected_tasks: list[SelectedTaskSummary]
+    didnt_fit_tasks: list[DidntFitTaskSummary]
     lunch_skipped: bool
-
-
-@dataclass(frozen=True)
-class SelectedTaskSummary:
-    id: int
-    title: str
-    priority: TaskPriority
-    due_date: date | None
+    full_day_busy: bool
+    suggestions_text: str | None
 
 
 @dataclass(frozen=True)
@@ -87,20 +98,6 @@ class _Gap:
     end_dt: datetime
     left_block: ScheduledBlock | None
     right_block: ScheduledBlock | None
-
-
-@dataclass
-class _TaskState:
-    ranked_task: RankedTask
-    remaining_min: int
-    part_index: int = 0
-
-
-_VARIANT_CAPS: dict[str, VariantCaps] = {
-    "minimal": VariantCaps(max_blocks=2, max_focus_minutes=120),
-    "realistic": VariantCaps(max_blocks=4, max_focus_minutes=240),
-    "aggressive": VariantCaps(max_blocks=10_000, max_focus_minutes=360),
-}
 
 
 def build_and_persist_day_plan(session: Session, *, plan_date: date, variant: str) -> DayPlanResult:
@@ -136,17 +133,34 @@ def build_and_persist_day_plan(session: Session, *, plan_date: date, variant: st
         [*busy_blocks, *([lunch_block] if lunch_block is not None else [])],
         key=_block_sort_key,
     )
-    focus_blocks, selected_tasks = _schedule_focus_blocks(
+    total_free_minutes = _sum_gap_minutes(planning_start_dt, planning_end_dt, fixed_blocks)
+    target_focus_minutes = _compute_focus_target_minutes(normalized_variant, total_free_minutes)
+
+    focus_blocks, selected_tasks, didnt_fit_tasks = _schedule_focus_blocks(
         planning_start_dt=planning_start_dt,
         planning_end_dt=planning_end_dt,
         fixed_blocks=fixed_blocks,
         ranked_tasks=ranked_tasks,
         settings=settings,
-        caps=_VARIANT_CAPS[normalized_variant],
+        variant=normalized_variant,
+        target_focus_minutes=target_focus_minutes,
     )
 
-    all_blocks = sorted([*fixed_blocks, *focus_blocks], key=_block_sort_key)
+    main_blocks = sorted([*fixed_blocks, *focus_blocks], key=_block_sort_key)
+    all_blocks = _materialize_timeline_blocks(
+        planning_start_dt=planning_start_dt,
+        planning_end_dt=planning_end_dt,
+        occupied_blocks=main_blocks,
+        settings=settings,
+    )
     _replace_day_plan(session, plan_date=plan_date, variant=normalized_variant, blocks=all_blocks)
+
+    full_day_busy = total_free_minutes == 0
+    suggestions_text = (
+        "Day fully busy; carry over NOW/NEXT tasks to tomorrow or reduce variant."
+        if full_day_busy
+        else None
+    )
 
     return DayPlanResult(
         plan_date=plan_date,
@@ -155,7 +169,10 @@ def build_and_persist_day_plan(session: Session, *, plan_date: date, variant: st
         timezone=settings.timezone,
         blocks=all_blocks,
         selected_tasks=selected_tasks,
+        didnt_fit_tasks=didnt_fit_tasks,
         lunch_skipped=lunch_skipped,
+        full_day_busy=full_day_busy,
+        suggestions_text=suggestions_text,
     )
 
 
@@ -208,9 +225,7 @@ def _parse_setting_int(raw_settings: dict[str, str], key: str, *, minimum: int) 
 
 
 def _load_candidate_tasks(session: Session) -> list[Task]:
-    rows = session.exec(
-        select(Task).where(Task.status.in_([TaskStatus.NOW, TaskStatus.NEXT]))
-    ).all()
+    rows = session.exec(select(Task).where(Task.status.in_([TaskStatus.NOW, TaskStatus.NEXT]))).all()
     return sorted(
         rows,
         key=lambda task: (
@@ -299,15 +314,13 @@ def _place_lunch_block(
 
     target_start = datetime.combine(plan_date, settings.lunch_start, tzinfo=settings.timezone)
     lunch_duration = timedelta(minutes=settings.lunch_duration_min)
-    gaps = _find_gaps(planning_start_dt, planning_end_dt, busy_blocks)
 
     candidates: list[tuple[int, datetime]] = []
-    for gap in gaps:
-        usable_start, usable_end = _apply_buffer_to_gap(gap, settings.buffer_min)
-        latest_start = usable_end - lunch_duration
-        if latest_start < usable_start:
+    for gap in _find_gaps(planning_start_dt, planning_end_dt, busy_blocks):
+        latest_start = gap.end_dt - lunch_duration
+        if latest_start < gap.start_dt:
             continue
-        candidate_start = _clamp_datetime(target_start, lower=usable_start, upper=latest_start)
+        candidate_start = _clamp_datetime(target_start, lower=gap.start_dt, upper=latest_start)
         distance_minutes = _abs_minutes(candidate_start - target_start)
         candidates.append((distance_minutes, candidate_start))
 
@@ -324,6 +337,15 @@ def _place_lunch_block(
     )
 
 
+def _compute_focus_target_minutes(variant: str, total_free_minutes: int) -> int:
+    ratio = _VARIANT_FILL_RATIO[variant]
+    if variant == "minimal":
+        target = int(total_free_minutes * ratio)
+    else:
+        target = int(round(total_free_minutes * ratio))
+    return max(0, min(target, total_free_minutes))
+
+
 def _schedule_focus_blocks(
     *,
     planning_start_dt: datetime,
@@ -331,101 +353,265 @@ def _schedule_focus_blocks(
     fixed_blocks: list[ScheduledBlock],
     ranked_tasks: list[RankedTask],
     settings: PlannerSettings,
-    caps: VariantCaps,
-) -> tuple[list[ScheduledBlock], list[SelectedTaskSummary]]:
-    task_states = [
-        _TaskState(ranked_task=ranked_task, remaining_min=ranked_task.task.estimate_min)
-        for ranked_task in ranked_tasks
-        if ranked_task.task.estimate_min >= settings.min_focus_block_min
-    ]
-    if not task_states:
-        return [], []
-
-    total_focus_minutes = 0
-    total_focus_blocks = 0
-    selected_task_ids: set[int] = set()
-    selected_tasks: list[SelectedTaskSummary] = []
+    variant: str,
+    target_focus_minutes: int,
+) -> tuple[list[ScheduledBlock], list[SelectedTaskSummary], list[DidntFitTaskSummary]]:
+    occupied_blocks = sorted(fixed_blocks, key=_block_sort_key)
     focus_blocks: list[ScheduledBlock] = []
+    selected_by_id: dict[int, SelectedTaskSummary] = {}
+    didnt_fit_tasks: list[DidntFitTaskSummary] = []
+    total_focus_minutes = 0
+
+    for ranked_task in ranked_tasks:
+        task = ranked_task.task
+        task_id = task.id
+        if task_id is None:
+            continue
+
+        estimate_min = task.estimate_min
+        if estimate_min < settings.min_focus_block_min:
+            didnt_fit_tasks.append(
+                DidntFitTaskSummary(
+                    id=task_id,
+                    title=task.title,
+                    reason=f"estimate < min focus ({settings.min_focus_block_min}m)",
+                )
+            )
+            continue
+
+        slot = _find_first_focus_slot(
+            planning_start_dt=planning_start_dt,
+            planning_end_dt=planning_end_dt,
+            occupied_blocks=occupied_blocks,
+            estimate_min=estimate_min,
+            buffer_min=settings.buffer_min,
+        )
+        if slot is None:
+            didnt_fit_tasks.append(
+                DidntFitTaskSummary(
+                    id=task_id,
+                    title=task.title,
+                    reason=f"no slot >= {estimate_min}m",
+                )
+            )
+            continue
+
+        should_schedule, skip_reason = _should_schedule_task_for_variant(
+            variant=variant,
+            current_focus_minutes=total_focus_minutes,
+            task_estimate_min=estimate_min,
+            target_focus_minutes=target_focus_minutes,
+        )
+        if not should_schedule:
+            didnt_fit_tasks.append(
+                DidntFitTaskSummary(
+                    id=task_id,
+                    title=task.title,
+                    reason=skip_reason,
+                )
+            )
+            continue
+
+        block = ScheduledBlock(
+            start_dt=slot[0],
+            end_dt=slot[1],
+            type="focus",
+            label=task.title,
+            task_id=task_id,
+        )
+        focus_blocks.append(block)
+        occupied_blocks.append(block)
+        occupied_blocks.sort(key=_block_sort_key)
+        total_focus_minutes += estimate_min
+
+        if task_id not in selected_by_id:
+            selected_by_id[task_id] = SelectedTaskSummary(
+                id=task_id,
+                title=task.title,
+                priority=TaskPriority(task.priority),
+                due_date=task.due_date,
+                estimate_min=task.estimate_min,
+            )
+
+    selected_tasks: list[SelectedTaskSummary] = []
+    seen_task_ids: set[int] = set()
+    for block in sorted(focus_blocks, key=_block_sort_key):
+        if block.task_id is None or block.task_id in seen_task_ids:
+            continue
+        summary = selected_by_id.get(block.task_id)
+        if summary is None:
+            continue
+        selected_tasks.append(summary)
+        seen_task_ids.add(block.task_id)
+
+    return focus_blocks, selected_tasks, didnt_fit_tasks
+
+
+def _find_first_focus_slot(
+    *,
+    planning_start_dt: datetime,
+    planning_end_dt: datetime,
+    occupied_blocks: list[ScheduledBlock],
+    estimate_min: int,
+    buffer_min: int,
+) -> tuple[datetime, datetime] | None:
+    block_duration = timedelta(minutes=estimate_min)
+    for gap in _find_gaps(planning_start_dt, planning_end_dt, occupied_blocks):
+        usable_start, usable_end = _apply_buffer_to_gap(gap, buffer_min)
+        if usable_end - usable_start < block_duration:
+            continue
+        return usable_start, usable_start + block_duration
+    return None
+
+
+def _should_schedule_task_for_variant(
+    *,
+    variant: str,
+    current_focus_minutes: int,
+    task_estimate_min: int,
+    target_focus_minutes: int,
+) -> tuple[bool, str]:
+    if target_focus_minutes <= 0:
+        return False, "variant target reached"
+
+    new_total = current_focus_minutes + task_estimate_min
+    if variant == "minimal":
+        if new_total > target_focus_minutes:
+            return False, "would exceed variant target"
+        return True, ""
+
+    if current_focus_minutes >= target_focus_minutes:
+        return False, "variant target reached"
+    if new_total <= target_focus_minutes:
+        return True, ""
+
+    current_delta = abs(target_focus_minutes - current_focus_minutes)
+    new_delta = abs(target_focus_minutes - new_total)
+    if new_delta < current_delta:
+        return True, ""
+    return False, "would overshoot variant target"
+
+
+def _materialize_timeline_blocks(
+    *,
+    planning_start_dt: datetime,
+    planning_end_dt: datetime,
+    occupied_blocks: list[ScheduledBlock],
+    settings: PlannerSettings,
+) -> list[ScheduledBlock]:
+    blocks: list[ScheduledBlock] = []
+    sorted_occupied = sorted(occupied_blocks, key=_block_sort_key)
+    cursor = planning_start_dt
+    left_block: ScheduledBlock | None = None
+
+    for block in sorted_occupied:
+        if block.end_dt <= planning_start_dt or block.start_dt >= planning_end_dt:
+            continue
+
+        block_start = max(block.start_dt, planning_start_dt)
+        block_end = min(block.end_dt, planning_end_dt)
+        if block_start > cursor:
+            blocks.extend(
+                _materialize_gap_blocks(
+                    start_dt=cursor,
+                    end_dt=block_start,
+                    left_block=left_block,
+                    right_block=block,
+                    settings=settings,
+                )
+            )
+
+        if block_end > block_start:
+            normalized_block = ScheduledBlock(
+                start_dt=block_start,
+                end_dt=block_end,
+                type=block.type,
+                label=block.label,
+                task_id=block.task_id,
+            )
+            blocks.append(normalized_block)
+            cursor = block_end
+            left_block = normalized_block
+
+    if cursor < planning_end_dt:
+        blocks.extend(
+            _materialize_gap_blocks(
+                start_dt=cursor,
+                end_dt=planning_end_dt,
+                left_block=left_block,
+                right_block=None,
+                settings=settings,
+            )
+        )
+
+    return blocks
+
+
+def _materialize_gap_blocks(
+    *,
+    start_dt: datetime,
+    end_dt: datetime,
+    left_block: ScheduledBlock | None,
+    right_block: ScheduledBlock | None,
+    settings: PlannerSettings,
+) -> list[ScheduledBlock]:
+    if start_dt >= end_dt:
+        return []
+
+    blocks: list[ScheduledBlock] = []
+    gap_cursor = start_dt
+    gap_end = end_dt
     buffer_delta = timedelta(minutes=settings.buffer_min)
 
-    for gap in _find_gaps(planning_start_dt, planning_end_dt, fixed_blocks):
-        usable_start, usable_end = _apply_buffer_to_gap(gap, settings.buffer_min)
-        cursor = usable_start
-
-        while True:
-            if total_focus_blocks >= caps.max_blocks or total_focus_minutes >= caps.max_focus_minutes:
-                return focus_blocks, selected_tasks
-
-            remaining_window_minutes = _minutes_between(cursor, usable_end)
-            if remaining_window_minutes < settings.min_focus_block_min:
-                break
-
-            remaining_variant_minutes = caps.max_focus_minutes - total_focus_minutes
-            if remaining_variant_minutes < settings.min_focus_block_min:
-                return focus_blocks, selected_tasks
-
-            task_state = _pick_next_task(task_states, settings.min_focus_block_min)
-            if task_state is None:
-                return focus_blocks, selected_tasks
-
-            block_minutes = min(
-                task_state.remaining_min,
-                remaining_window_minutes,
-                remaining_variant_minutes,
-            )
-            if block_minutes < settings.min_focus_block_min:
-                task_state.remaining_min = 0
-                continue
-
-            block_start = cursor
-            block_end = block_start + timedelta(minutes=block_minutes)
-
-            task_state.part_index += 1
-            is_split = task_state.remaining_min > block_minutes or task_state.part_index > 1
-            if is_split:
-                label = f"{task_state.ranked_task.task.title} (part {task_state.part_index})"
-            else:
-                label = task_state.ranked_task.task.title
-
-            focus_blocks.append(
+    if settings.buffer_min > 0 and left_block is not None and gap_cursor < gap_end:
+        left_buffer_end = min(gap_cursor + buffer_delta, gap_end)
+        if left_buffer_end > gap_cursor:
+            blocks.append(
                 ScheduledBlock(
-                    start_dt=block_start,
-                    end_dt=block_end,
-                    type="focus",
-                    label=label,
-                    task_id=task_state.ranked_task.task.id,
+                    start_dt=gap_cursor,
+                    end_dt=left_buffer_end,
+                    type="buffer",
+                    label="Buffer",
+                    task_id=None,
                 )
             )
+            gap_cursor = left_buffer_end
 
-            task_state.remaining_min -= block_minutes
-            total_focus_minutes += block_minutes
-            total_focus_blocks += 1
+    right_buffer_block: ScheduledBlock | None = None
+    if settings.buffer_min > 0 and right_block is not None and gap_cursor < gap_end:
+        right_buffer_start = max(gap_end - buffer_delta, gap_cursor)
+        if right_buffer_start < gap_end:
+            right_buffer_block = ScheduledBlock(
+                start_dt=right_buffer_start,
+                end_dt=gap_end,
+                type="buffer",
+                label="Buffer",
+                task_id=None,
+            )
+            gap_end = right_buffer_start
 
-            task_id = task_state.ranked_task.task.id
-            if task_id is not None and task_id not in selected_task_ids:
-                selected_task_ids.add(task_id)
-                selected_tasks.append(
-                    SelectedTaskSummary(
-                        id=task_id,
-                        title=task_state.ranked_task.task.title,
-                        priority=TaskPriority(task_state.ranked_task.task.priority),
-                        due_date=task_state.ranked_task.task.due_date,
-                    )
-                )
+    if gap_cursor < gap_end:
+        blocks.append(
+            ScheduledBlock(
+                start_dt=gap_cursor,
+                end_dt=gap_end,
+                type="admin",
+                label="Admin",
+                task_id=None,
+            )
+        )
 
-            next_cursor = block_end + buffer_delta
-            if next_cursor > usable_end:
-                break
-            cursor = next_cursor
+    if right_buffer_block is not None:
+        blocks.append(right_buffer_block)
 
-    return focus_blocks, selected_tasks
+    return blocks
 
 
-def _pick_next_task(task_states: list[_TaskState], min_focus_block_min: int) -> _TaskState | None:
-    for task_state in task_states:
-        if task_state.remaining_min >= min_focus_block_min:
-            return task_state
-    return None
+def _sum_gap_minutes(window_start_dt: datetime, window_end_dt: datetime, occupied_blocks: list[ScheduledBlock]) -> int:
+    return sum(
+        _minutes_between(gap.start_dt, gap.end_dt)
+        for gap in _find_gaps(window_start_dt, window_end_dt, occupied_blocks)
+    )
 
 
 def _find_gaps(
