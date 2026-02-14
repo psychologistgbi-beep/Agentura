@@ -40,6 +40,12 @@ class Calendar(SQLModel, table=True):
 
 class BusyBlock(SQLModel, table=True):
     __tablename__ = "busy_blocks"
+    __table_args__ = (
+        CheckConstraint(
+            "julianday(end_dt) > julianday(start_dt)",
+            name="ck_busy_blocks_end_after_start",
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     calendar_id: int = Field(foreign_key="calendars.id", index=True)
