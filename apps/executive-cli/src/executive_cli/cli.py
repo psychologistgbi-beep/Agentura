@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone as _utc_tz
 from zoneinfo import ZoneInfo
 
 import typer
@@ -14,7 +14,16 @@ from executive_cli.db import (
     get_engine,
     initialize_database,
 )
-from executive_cli.models import Area, BusyBlock, Calendar, Commitment, Project
+from executive_cli.models import (
+    Area,
+    BusyBlock,
+    Calendar,
+    Commitment,
+    Project,
+    Task,
+    TaskPriority,
+    TaskStatus,
+)
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -28,11 +37,13 @@ busy_app = typer.Typer(help="Manage busy blocks in the primary calendar.")
 commitment_app = typer.Typer(help="Manage year commitments.")
 config_app = typer.Typer(help="Manage assistant settings.")
 project_app = typer.Typer(help="Manage projects (reference data).")
+task_app = typer.Typer(help="Manage GTD tasks.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(commitment_app, name="commitment")
 app.add_typer(config_app, name="config")
 app.add_typer(project_app, name="project")
+app.add_typer(task_app, name="task")
 
 
 @dataclass
@@ -441,6 +452,247 @@ def commitment_import() -> None:
         session.commit()
 
     typer.echo(f"imported={inserted} skipped={skipped} conflicts={conflicts}")
+
+
+# --- Task commands ---
+
+_STATUS_PRIORITY_ORDER = {s: i for i, s in enumerate(
+    [TaskStatus.NOW, TaskStatus.NEXT, TaskStatus.WAITING, TaskStatus.SOMEDAY, TaskStatus.DONE, TaskStatus.CANCELED]
+)}
+_PRIORITY_ORDER = {p: i for i, p in enumerate([TaskPriority.P1, TaskPriority.P2, TaskPriority.P3])}
+
+
+def _now_iso() -> str:
+    """Current UTC time as ISO-8601 with offset (consistent with models.py default_factory)."""
+    return datetime.now(_utc_tz.utc).isoformat()
+
+
+def _format_task(t: Task) -> str:
+    line = f'id={t.id} status={t.status} priority={t.priority} estimate={t.estimate_min} due={t.due_date or "-"} title="{t.title}"'
+    if t.status == TaskStatus.WAITING:
+        ping_display = t.ping_at or "-"
+        line += f' waiting_on="{t.waiting_on or "-"}" ping_at="{ping_display}"'
+    return line
+
+
+def _resolve_area_id(session: Session, area_name: str | None) -> int | None:
+    if area_name is None:
+        return None
+    area = session.exec(select(Area).where(Area.name == area_name.strip())).first()
+    if area is None:
+        raise typer.BadParameter(f'Area "{area_name.strip()}" not found.')
+    return area.id
+
+
+def _resolve_project_id(session: Session, project_name: str | None) -> int | None:
+    if project_name is None:
+        return None
+    proj = session.exec(select(Project).where(Project.name == project_name.strip())).first()
+    if proj is None:
+        raise typer.BadParameter(f'Project "{project_name.strip()}" not found.')
+    return proj.id
+
+
+def _resolve_commitment_id(session: Session, commitment_id: str | None) -> str | None:
+    if commitment_id is None:
+        return None
+    c = session.get(Commitment, commitment_id.strip())
+    if c is None:
+        raise typer.BadParameter(f'Commitment "{commitment_id.strip()}" not found.')
+    return c.id
+
+
+@task_app.command("capture")
+def task_capture(
+    title: str = typer.Argument(..., help="Task title."),
+    estimate: int = typer.Option(..., "--estimate", help="Estimate in minutes (>0)."),
+    priority: str = typer.Option(..., "--priority", help="Priority: P1, P2, or P3."),
+    status: str = typer.Option("NOW", "--status", help="Initial status (NOW, NEXT, SOMEDAY)."),
+    area_name: str | None = typer.Option(None, "--area", help="Area name."),
+    project_name: str | None = typer.Option(None, "--project", help="Project name."),
+    commitment_id: str | None = typer.Option(None, "--commitment", help="Commitment ID."),
+    due: str | None = typer.Option(None, "--due", help="Due date YYYY-MM-DD."),
+) -> None:
+    """Capture a new task with required estimate and priority."""
+    trimmed = title.strip()
+    if not trimmed:
+        raise typer.BadParameter("Task title must not be empty.")
+
+    if estimate <= 0:
+        raise typer.BadParameter("--estimate must be > 0.")
+
+    priority_upper = priority.strip().upper()
+    try:
+        parsed_priority = TaskPriority(priority_upper)
+    except ValueError:
+        raise typer.BadParameter(f"Invalid --priority: {priority}. Must be P1, P2, or P3.")
+
+    status_upper = status.strip().upper()
+    allowed_capture_statuses = {TaskStatus.NOW, TaskStatus.NEXT, TaskStatus.SOMEDAY}
+    try:
+        parsed_status = TaskStatus(status_upper)
+    except ValueError:
+        raise typer.BadParameter(f"Invalid --status: {status}. Must be NOW, NEXT, or SOMEDAY.")
+    if parsed_status not in allowed_capture_statuses:
+        raise typer.BadParameter(f"Cannot capture with status {status_upper}. Use NOW, NEXT, or SOMEDAY.")
+
+    due_date = _parse_date(due) if due else None
+
+    now = _now_iso()
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        area_id = _resolve_area_id(session, area_name)
+        project_id = _resolve_project_id(session, project_name)
+        cmt_id = _resolve_commitment_id(session, commitment_id)
+
+        task = Task(
+            title=trimmed,
+            status=parsed_status,
+            priority=parsed_priority,
+            estimate_min=estimate,
+            due_date=due_date,
+            area_id=area_id,
+            project_id=project_id,
+            commitment_id=cmt_id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        typer.echo(_format_task(task))
+
+
+@task_app.command("list")
+def task_list(
+    status: str | None = typer.Option(None, "--status", help="Filter by status."),
+    area_name: str | None = typer.Option(None, "--area", help="Filter by area name."),
+    project_name: str | None = typer.Option(None, "--project", help="Filter by project name."),
+    commitment_id: str | None = typer.Option(None, "--commitment", help="Filter by commitment ID."),
+) -> None:
+    """List tasks with optional filters, sorted by status/priority/due/id."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        query = select(Task)
+
+        if status is not None:
+            status_upper = status.strip().upper()
+            try:
+                parsed_status = TaskStatus(status_upper)
+            except ValueError:
+                raise typer.BadParameter(f"Invalid --status: {status}.")
+            query = query.where(Task.status == parsed_status)
+
+        if area_name is not None:
+            area_id = _resolve_area_id(session, area_name)
+            query = query.where(Task.area_id == area_id)
+
+        if project_name is not None:
+            project_id = _resolve_project_id(session, project_name)
+            query = query.where(Task.project_id == project_id)
+
+        if commitment_id is not None:
+            cmt_id = _resolve_commitment_id(session, commitment_id)
+            query = query.where(Task.commitment_id == cmt_id)
+
+        tasks = session.exec(query).all()
+
+    if not tasks:
+        typer.echo("No tasks.")
+        return
+
+    # Sort in Python: status order, priority order, due_date (nulls last), id
+    def sort_key(t: Task):
+        due_sort = (0, t.due_date.isoformat()) if t.due_date else (1, "")
+        return (
+            _STATUS_PRIORITY_ORDER.get(TaskStatus(t.status), 99),
+            _PRIORITY_ORDER.get(TaskPriority(t.priority), 99),
+            due_sort,
+            t.id or 0,
+        )
+
+    tasks_sorted = sorted(tasks, key=sort_key)
+    for t in tasks_sorted:
+        typer.echo(_format_task(t))
+
+
+@task_app.command("move")
+def task_move(
+    task_id: int = typer.Argument(..., help="Task ID."),
+    status: str = typer.Option(..., "--status", help="New status."),
+) -> None:
+    """Change task status. Moving to WAITING requires execas task waiting instead."""
+    status_upper = status.strip().upper()
+    try:
+        parsed_status = TaskStatus(status_upper)
+    except ValueError:
+        raise typer.BadParameter(f"Invalid --status: {status}. Must be one of: {', '.join(s.value for s in TaskStatus)}.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise typer.BadParameter(f"Task {task_id} not found.")
+
+        if parsed_status == TaskStatus.WAITING:
+            if not task.waiting_on or not task.ping_at:
+                raise typer.BadParameter(
+                    "Cannot move to WAITING without waiting_on and ping_at. "
+                    'Use: execas task waiting <id> --on "..." --ping "YYYY-MM-DD HH:MM"'
+                )
+
+        task.status = parsed_status
+        task.updated_at = _now_iso()
+        session.commit()
+        session.refresh(task)
+        typer.echo(_format_task(task))
+
+
+@task_app.command("waiting")
+def task_waiting(
+    task_id: int = typer.Argument(..., help="Task ID."),
+    on: str = typer.Option(..., "--on", help="Who or what we are waiting on."),
+    ping: str = typer.Option(..., "--ping", help="Ping datetime YYYY-MM-DD HH:MM (Europe/Moscow)."),
+) -> None:
+    """Set task to WAITING with waiting_on and ping_at."""
+    on_trimmed = on.strip()
+    if not on_trimmed:
+        raise typer.BadParameter("--on must not be empty.")
+
+    try:
+        naive_dt = datetime.strptime(ping.strip(), "%Y-%m-%d %H:%M")
+    except ValueError as exc:
+        raise typer.BadParameter("Invalid --ping format. Expected 'YYYY-MM-DD HH:MM'.") from exc
+
+    ping_dt = naive_dt.replace(tzinfo=MOSCOW_TZ)
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise typer.BadParameter(f"Task {task_id} not found.")
+
+        task.status = TaskStatus.WAITING
+        task.waiting_on = on_trimmed
+        task.ping_at = ping_dt.isoformat()
+        task.updated_at = _now_iso()
+        session.commit()
+        session.refresh(task)
+        typer.echo(_format_task(task))
+
+
+@task_app.command("done")
+def task_done(
+    task_id: int = typer.Argument(..., help="Task ID."),
+) -> None:
+    """Mark a task as DONE (shortcut for move --status DONE)."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise typer.BadParameter(f"Task {task_id} not found.")
+
+        task.status = TaskStatus.DONE
+        task.updated_at = _now_iso()
+        session.commit()
+        session.refresh(task)
+        typer.echo(_format_task(task))
 
 
 def main() -> None:
