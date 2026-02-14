@@ -25,4 +25,13 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]
+
+[tool.coverage.run]
+omit = [
+    "src/executive_cli/__main__.py",
+    "src/executive_cli/cli.py",
+    "src/executive_cli/config.py",
+    "src/executive_cli/db.py",
 ]
