@@ -21,3 +21,7 @@ node_modules/
 
 # executive-cli local DB
 apps/executive-cli/.data/
+
+# test artifacts
+.coverage
+apps/executive-cli/.coverage
