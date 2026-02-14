@@ -1,5 +1,7 @@
 from datetime import datetime, time
 
+import pytest
+
 from executive_cli.timeutil import MOSCOW_TZ, db_to_dt, dt_to_db, parse_time_hhmm
 
 
@@ -13,6 +15,7 @@ def test_datetime_roundtrip_preserves_value() -> None:
     assert restored.isoformat() == original.isoformat()
 
 
-def test_parse_time_hhmm_allows_single_digit_hours() -> None:
+def test_parse_time_hhmm_is_strict() -> None:
     assert parse_time_hhmm("07:00") == time(7, 0)
-    assert parse_time_hhmm("7:00") == time(7, 0)
+    with pytest.raises(ValueError):
+        parse_time_hhmm("7:00")
