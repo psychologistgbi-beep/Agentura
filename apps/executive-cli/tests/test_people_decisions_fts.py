@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from sqlmodel import Session, SQLModel, create_engine, select
+from typer.testing import CliRunner
 
+from executive_cli.cli import app
 from executive_cli.models import Decision, Person
+
+runner = CliRunner()
 
 
 def _create_engine(tmp_path):
@@ -212,3 +216,66 @@ def test_decisions_fts_updates_after_update(tmp_path) -> None:
         results = _fts_search_decisions(session, "GraphQL")
         assert len(results) == 1
         assert results[0].title == "Use GraphQL API"
+
+
+# --- CLI flag / backward-compat tests ---
+
+
+def _init_cli_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "cli.sqlite"
+    monkeypatch.setenv("EXECAS_DB_PATH", str(db_path))
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0
+    return db_path
+
+
+def test_people_add_via_flag(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["people", "add", "--name", "Flag Person", "--role", "QA"])
+    assert result.exit_code == 0
+    assert "Flag Person" in result.output
+
+
+def test_people_add_via_positional(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["people", "add", "Positional Person"])
+    assert result.exit_code == 0
+    assert "Positional Person" in result.output
+
+
+def test_people_add_conflict(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["people", "add", "Both", "--name", "Both"])
+    assert result.exit_code != 0
+
+
+def test_people_add_missing(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["people", "add"])
+    assert result.exit_code != 0
+
+
+def test_decision_add_via_flag(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["decision", "add", "--title", "Flag Decision", "--body", "rationale"])
+    assert result.exit_code == 0
+    assert "Flag Decision" in result.output
+
+
+def test_decision_add_via_positional(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["decision", "add", "Positional Decision"])
+    assert result.exit_code == 0
+    assert "Positional Decision" in result.output
+
+
+def test_decision_add_conflict(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["decision", "add", "Both", "--title", "Both"])
+    assert result.exit_code != 0
+
+
+def test_decision_add_missing(tmp_path, monkeypatch) -> None:
+    _init_cli_db(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["decision", "add"])
+    assert result.exit_code != 0

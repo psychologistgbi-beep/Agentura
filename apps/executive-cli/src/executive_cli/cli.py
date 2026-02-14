@@ -384,11 +384,17 @@ def _format_person(p: Person) -> str:
 
 @people_app.command("add")
 def people_add(
-    name: str = typer.Argument(..., help="Person name."),
+    name_arg: str | None = typer.Argument(None, metavar="NAME", help="Person name (positional)."),
+    name_flag: str | None = typer.Option(None, "--name", help="Person name (flag)."),
     role: str | None = typer.Option(None, "--role", help="Role or title."),
     context: str | None = typer.Option(None, "--context", help="Additional context."),
 ) -> None:
-    """Add a person."""
+    """Add a person. Name via positional arg or --name flag (not both)."""
+    if name_arg is not None and name_flag is not None:
+        raise typer.BadParameter("Provide name as positional argument OR --name, not both.")
+    name = name_arg or name_flag
+    if name is None:
+        raise typer.BadParameter("Person name is required (positional or --name).")
     trimmed = name.strip()
     if not trimmed:
         raise typer.BadParameter("Person name must not be empty.")
@@ -448,11 +454,17 @@ def _format_decision(d: Decision) -> str:
 
 @decision_app.command("add")
 def decision_add(
-    title: str = typer.Argument(..., help="Decision title."),
+    title_arg: str | None = typer.Argument(None, metavar="TITLE", help="Decision title (positional)."),
+    title_flag: str | None = typer.Option(None, "--title", help="Decision title (flag)."),
     body: str | None = typer.Option(None, "--body", help="Decision body/rationale."),
     date_value: str | None = typer.Option(None, "--date", help="Decision date YYYY-MM-DD."),
 ) -> None:
-    """Add a decision."""
+    """Add a decision. Title via positional arg or --title flag (not both)."""
+    if title_arg is not None and title_flag is not None:
+        raise typer.BadParameter("Provide title as positional argument OR --title, not both.")
+    title = title_arg or title_flag
+    if title is None:
+        raise typer.BadParameter("Decision title is required (positional or --title).")
     trimmed = title.strip()
     if not trimmed:
         raise typer.BadParameter("Decision title must not be empty.")
