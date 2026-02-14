@@ -26,10 +26,10 @@ def parse_time_hhmm(s: str) -> time:
     return time(hour=hour, minute=minute)
 
 
-def parse_local_dt(s: str) -> datetime:
-    """Parse 'YYYY-MM-DD HH:MM' as Europe/Moscow tz-aware datetime. Raises ValueError."""
+def parse_local_dt(s: str, tz: ZoneInfo = MOSCOW_TZ) -> datetime:
+    """Parse 'YYYY-MM-DD HH:MM' in the provided timezone. Raises ValueError."""
     naive = datetime.strptime(s, "%Y-%m-%d %H:%M")
-    return naive.replace(tzinfo=MOSCOW_TZ)
+    return naive.replace(tzinfo=tz)
 
 
 def dt_to_db(dt: datetime) -> str:

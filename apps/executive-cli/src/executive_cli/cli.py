@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone as _utc_tz
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import typer
 from rich import print
@@ -9,6 +10,7 @@ from sqlmodel import Session, select
 from executive_cli.busy_service import merge_busy_blocks
 from executive_cli.config import list_settings, upsert_setting
 from executive_cli.db import (
+    DEFAULT_SETTINGS,
     PRIMARY_CALENDAR_SLUG,
     get_engine,
     initialize_database,
@@ -19,11 +21,13 @@ from executive_cli.models import (
     Calendar,
     Commitment,
     Project,
+    Settings,
     Task,
     TaskPriority,
     TaskStatus,
 )
-from executive_cli.timeutil import MOSCOW_TZ, dt_to_db, parse_local_dt
+from executive_cli.planner import VALID_VARIANTS, build_and_persist_day_plan
+from executive_cli.timeutil import dt_to_db, parse_local_dt
 
 app = typer.Typer(
     name="execas",
@@ -36,12 +40,14 @@ commitment_app = typer.Typer(help="Manage year commitments.")
 config_app = typer.Typer(help="Manage assistant settings.")
 project_app = typer.Typer(help="Manage projects (reference data).")
 task_app = typer.Typer(help="Manage GTD tasks.")
+plan_app = typer.Typer(help="Manage deterministic day planning.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(commitment_app, name="commitment")
 app.add_typer(config_app, name="config")
 app.add_typer(project_app, name="project")
 app.add_typer(task_app, name="task")
+app.add_typer(plan_app, name="plan")
 
 
 def _parse_date(value: str) -> datetime.date:
@@ -65,6 +71,15 @@ def _get_primary_calendar(session: Session) -> Calendar:
     return calendar
 
 
+def _get_user_timezone(session: Session) -> tuple[ZoneInfo, str]:
+    setting = session.get(Settings, "timezone")
+    timezone_name = setting.value if setting is not None else DEFAULT_SETTINGS["timezone"]
+    try:
+        return ZoneInfo(timezone_name), timezone_name
+    except ZoneInfoNotFoundError as exc:
+        raise typer.BadParameter(f"Invalid timezone setting: {timezone_name}") from exc
+
+
 @app.callback()
 def root() -> None:
     """Executive Assistant CLI entrypoint."""
@@ -79,7 +94,7 @@ def init() -> None:
 
 @busy_app.command("add")
 def busy_add(
-    date_value: str = typer.Option(..., "--date", help="Date in YYYY-MM-DD (Europe/Moscow)."),
+    date_value: str = typer.Option(..., "--date", help="Date in YYYY-MM-DD (settings timezone)."),
     start: str = typer.Option(..., "--start", help="Start time in HH:MM."),
     end: str = typer.Option(..., "--end", help="End time in HH:MM."),
     title: str = typer.Option(..., "--title", help="Busy block title."),
@@ -89,13 +104,13 @@ def busy_add(
     start_time = _parse_time(start, "start")
     end_time = _parse_time(end, "end")
 
-    start_dt = datetime.combine(local_date, start_time, tzinfo=MOSCOW_TZ)
-    end_dt = datetime.combine(local_date, end_time, tzinfo=MOSCOW_TZ)
-
-    if start_dt >= end_dt:
-        raise typer.BadParameter("Invalid interval: --start must be earlier than --end.")
-
     with Session(get_engine(ensure_directory=True)) as session:
+        user_tz, _ = _get_user_timezone(session)
+        start_dt = datetime.combine(local_date, start_time, tzinfo=user_tz)
+        end_dt = datetime.combine(local_date, end_time, tzinfo=user_tz)
+        if start_dt >= end_dt:
+            raise typer.BadParameter("Invalid interval: --start must be earlier than --end.")
+
         calendar = _get_primary_calendar(session)
         block = BusyBlock(
             calendar_id=calendar.id,
@@ -113,15 +128,16 @@ def busy_add(
 
 @busy_app.command("list")
 def busy_list(
-    date_value: str = typer.Option(..., "--date", help="Date in YYYY-MM-DD (Europe/Moscow)."),
+    date_value: str = typer.Option(..., "--date", help="Date in YYYY-MM-DD (settings timezone)."),
 ) -> None:
     """List merged busy blocks for the given local date (merge-on-read)."""
     local_date = _parse_date(date_value)
 
-    day_start = datetime.combine(local_date, datetime.min.time(), tzinfo=MOSCOW_TZ)
-    day_end = datetime.combine(local_date, datetime.max.time(), tzinfo=MOSCOW_TZ)
-
     with Session(get_engine(ensure_directory=True)) as session:
+        user_tz, timezone_name = _get_user_timezone(session)
+        day_start = datetime.combine(local_date, datetime.min.time(), tzinfo=user_tz)
+        day_end = datetime.combine(local_date, datetime.max.time(), tzinfo=user_tz)
+
         calendar = _get_primary_calendar(session)
         rows = session.exec(
             select(BusyBlock)
@@ -136,7 +152,7 @@ def busy_list(
         print(f"[yellow]No busy blocks for {local_date.isoformat()}[/yellow]")
         return
 
-    print(f"[bold]Busy blocks for {local_date.isoformat()} (Europe/Moscow):[/bold]")
+    print(f"[bold]Busy blocks for {local_date.isoformat()} ({timezone_name}):[/bold]")
     for item in merged:
         print(f"- {item.start_dt.strftime('%H:%M')}–{item.end_dt.strftime('%H:%M')} | {item.title}")
 
@@ -161,6 +177,49 @@ def config_set(key: str, value: str) -> None:
             raise typer.BadParameter(str(exc)) from exc
 
     typer.echo(f"{setting.key}={setting.value}")
+
+
+@plan_app.command("day")
+def plan_day(
+    date_value: str = typer.Option(..., "--date", help="Date in YYYY-MM-DD."),
+    variant: str = typer.Option(..., "--variant", help="Plan variant: minimal, realistic, aggressive."),
+) -> None:
+    """Build, print, and persist a deterministic day plan."""
+    local_date = _parse_date(date_value)
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in VALID_VARIANTS:
+        raise typer.BadParameter("Invalid --variant. Expected one of: minimal, realistic, aggressive.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        try:
+            result = build_and_persist_day_plan(
+                session,
+                plan_date=local_date,
+                variant=normalized_variant,
+            )
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    print(f"Plan for {local_date.isoformat()} ({result.timezone_name}) variant={normalized_variant}")
+    for block in result.blocks:
+        start = block.start_dt.astimezone(result.timezone).strftime("%H:%M")
+        end = block.end_dt.astimezone(result.timezone).strftime("%H:%M")
+        print(f"- {start}-{end} {block.type} {block.label}")
+
+    if result.lunch_skipped:
+        print("Note: lunch skipped (no feasible slot).")
+
+    if result.selected_tasks:
+        selected_items = []
+        for task in result.selected_tasks:
+            item = f"{task.title} ({task.priority.value}"
+            if task.due_date is not None:
+                item += f" due {task.due_date.isoformat()}"
+            item += ")"
+            selected_items.append(item)
+        print(f"Selected tasks: {', '.join(selected_items)}")
+    else:
+        print("Selected tasks: none")
 
 
 VALID_DIFFICULTIES = {"D1", "D2", "D3", "D4", "D5"}
@@ -606,19 +665,20 @@ def task_move(
 def task_waiting(
     task_id: int = typer.Argument(..., help="Task ID."),
     on: str = typer.Option(..., "--on", help="Who or what we are waiting on."),
-    ping: str = typer.Option(..., "--ping", help="Ping datetime YYYY-MM-DD HH:MM (Europe/Moscow)."),
+    ping: str = typer.Option(..., "--ping", help="Ping datetime YYYY-MM-DD HH:MM (settings timezone)."),
 ) -> None:
     """Set task to WAITING with waiting_on and ping_at."""
     on_trimmed = on.strip()
     if not on_trimmed:
         raise typer.BadParameter("--on must not be empty.")
 
-    try:
-        ping_dt = parse_local_dt(ping.strip())
-    except ValueError as exc:
-        raise typer.BadParameter("Invalid --ping format. Expected 'YYYY-MM-DD HH:MM'.") from exc
-
     with Session(get_engine(ensure_directory=True)) as session:
+        user_tz, _ = _get_user_timezone(session)
+        try:
+            ping_dt = parse_local_dt(ping.strip(), user_tz)
+        except ValueError as exc:
+            raise typer.BadParameter("Invalid --ping format. Expected 'YYYY-MM-DD HH:MM'.") from exc
+
         task = session.get(Task, task_id)
         if task is None:
             raise typer.BadParameter(f"Task {task_id} not found.")
