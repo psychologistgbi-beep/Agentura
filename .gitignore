@@ -12,6 +12,7 @@ agent-sandbox/
 .env.*
 *.pem
 *.key
+credentials.*
 
 # Python / Node noise (future-proof)
 .venv/
@@ -21,6 +22,8 @@ node_modules/
 
 # executive-cli local DB
 apps/executive-cli/.data/
+*.sqlite
+*.sqlite3
 
 # test artifacts
 .coverage

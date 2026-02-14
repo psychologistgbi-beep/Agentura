@@ -194,3 +194,50 @@ class MailConnector(Protocol):
 - Все изменения проходят через один слой валидации/инвариантов (EA).
 - В будущем можно добавить формальный протокол ChangeSet/apply, не ломая модель ролей.
 
+
+---
+
+## ADR-10: External Sync Provenance Schema (Calendar + Mail)
+
+**Context:**
+Backlog B1/B2 introduces incremental sync for Yandex CalDAV and Yandex Mail ingest with idempotency, deduplication, and traceable task-email links. Current schema has `busy_blocks` and `tasks`, but no stable external identity columns, no sync cursor storage, and no email linkage model.
+
+**Decision:**
+Adopt a provenance-first schema extension for external ingest:
+
+1. Extend `busy_blocks` with external metadata for synced rows:
+   - `source` (e.g. `manual`, `yandex_caldav`)
+   - `external_id` (UID / UID+RECURRENCE-ID)
+   - `external_etag`
+   - `external_modified_at`
+   - `is_deleted` (soft tombstone)
+2. Add `sync_state` table for per-source cursor/watermark persistence:
+   - keys: `(source, scope)`
+   - fields: `cursor`, `cursor_kind`, `updated_at`
+3. Add `emails` table for read-only message metadata:
+   - `source`, `external_id`, `message_id`, `mailbox_uid`, `subject`, `sender`, `received_at`, `first_seen_at`, `last_seen_at`, `flags_json`
+4. Add `task_email_links` join table:
+   - `task_id`, `email_id`, `link_type`, `created_at`
+   - unique `(task_id, email_id)`
+5. Add dedup indexes:
+   - `busy_blocks(calendar_id, source, external_id)` unique when `external_id` is not null
+   - `emails(source, external_id)` unique
+
+**Consequences:**
+- Enables deterministic incremental sync and idempotent upserts.
+- Preserves manual busy blocks as separate source from external calendar rows.
+- Supports privacy-by-default email ingest (metadata only) while keeping auditability for task origin.
+- Requires new Alembic migration and model updates before implementation of connector writes.
+
+**Alternatives considered:**
+- Keep state only in memory and perform full resync every run.
+  - Rejected: expensive, higher duplicate/staleness risk, weak failure recovery.
+- Store raw ICS/EML payloads in SQLite.
+  - Rejected: unnecessary PII expansion and larger attack surface.
+- Reuse `tasks.context` free text for email links.
+  - Rejected: non-normalized, not query-safe, cannot enforce referential integrity.
+
+**Rollback:**
+- Disable connector sync commands and keep manual fallback (`busy add`, `task capture`).
+- Migration rollback removes added tables/columns/indexes and returns to manual-only model.
+
