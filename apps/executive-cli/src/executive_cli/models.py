@@ -139,3 +139,25 @@ class TimeBlock(SQLModel, table=True):
     type: str  # "busy" | "focus" | "lunch" | "buffer" | "admin"
     task_id: int | None = Field(default=None, foreign_key="tasks.id")
     label: str | None = None
+
+
+class Person(SQLModel, table=True):
+    __tablename__ = "people"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    role: str | None = None
+    context: str | None = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class Decision(SQLModel, table=True):
+    __tablename__ = "decisions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    title: str
+    body: str | None = None
+    decided_date: date | None = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
