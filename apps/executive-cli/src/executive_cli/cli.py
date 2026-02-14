@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone as _utc_tz
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import sqlalchemy as sa
 import typer
 from rich import print
 from sqlmodel import Session, select
@@ -20,6 +21,8 @@ from executive_cli.models import (
     BusyBlock,
     Calendar,
     Commitment,
+    Decision,
+    Person,
     Project,
     Settings,
     Task,
@@ -38,6 +41,8 @@ area_app = typer.Typer(help="Manage areas (reference data).")
 busy_app = typer.Typer(help="Manage busy blocks in the primary calendar.")
 commitment_app = typer.Typer(help="Manage year commitments.")
 config_app = typer.Typer(help="Manage assistant settings.")
+decision_app = typer.Typer(help="Manage decisions (searchable via FTS).")
+people_app = typer.Typer(help="Manage people (searchable via FTS).")
 project_app = typer.Typer(help="Manage projects (reference data).")
 task_app = typer.Typer(help="Manage GTD tasks.")
 plan_app = typer.Typer(help="Manage deterministic day planning.")
@@ -45,6 +50,8 @@ app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(commitment_app, name="commitment")
 app.add_typer(config_app, name="config")
+app.add_typer(decision_app, name="decision")
+app.add_typer(people_app, name="people")
 app.add_typer(project_app, name="project")
 app.add_typer(task_app, name="task")
 app.add_typer(plan_app, name="plan")
@@ -78,6 +85,11 @@ def _get_user_timezone(session: Session) -> tuple[ZoneInfo, str]:
         return ZoneInfo(timezone_name), timezone_name
     except ZoneInfoNotFoundError as exc:
         raise typer.BadParameter(f"Invalid timezone setting: {timezone_name}") from exc
+
+
+def _now_iso() -> str:
+    """Current UTC time as ISO-8601 with offset (consistent with models.py default_factory)."""
+    return datetime.now(_utc_tz.utc).isoformat()
 
 
 @app.callback()
@@ -363,6 +375,135 @@ def project_list() -> None:
             typer.echo(f'id={proj.id} name="{proj.name}" area="{area_name}"')
 
 
+# --- People commands ---
+
+
+def _format_person(p: Person) -> str:
+    return f'id={p.id} name="{p.name}" role="{p.role or "-"}" context="{p.context or "-"}"'
+
+
+@people_app.command("add")
+def people_add(
+    name: str = typer.Argument(..., help="Person name."),
+    role: str | None = typer.Option(None, "--role", help="Role or title."),
+    context: str | None = typer.Option(None, "--context", help="Additional context."),
+) -> None:
+    """Add a person."""
+    trimmed = name.strip()
+    if not trimmed:
+        raise typer.BadParameter("Person name must not be empty.")
+
+    now = _now_iso()
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        person = Person(
+            name=trimmed,
+            role=role.strip() if role else None,
+            context=context.strip() if context else None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(person)
+        session.commit()
+        session.refresh(person)
+        typer.echo(_format_person(person))
+
+
+@people_app.command("search")
+def people_search(
+    query: str = typer.Argument(..., help="FTS5 search query."),
+) -> None:
+    """Search people using full-text search."""
+    trimmed = query.strip()
+    if not trimmed:
+        raise typer.BadParameter("Search query must not be empty.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        results = session.exec(
+            select(Person)
+            .where(
+                Person.id.in_(  # type: ignore[union-attr]
+                    select(sa.column("rowid"))
+                    .select_from(sa.text("people_fts"))
+                    .where(sa.text("people_fts MATCH :q"))
+                )
+            )
+            .params(q=trimmed)
+        ).all()
+
+    if not results:
+        typer.echo("No matches.")
+        return
+
+    for p in results:
+        typer.echo(_format_person(p))
+
+
+# --- Decision commands ---
+
+
+def _format_decision(d: Decision) -> str:
+    return f'id={d.id} date={d.decided_date or "-"} title="{d.title}"'
+
+
+@decision_app.command("add")
+def decision_add(
+    title: str = typer.Argument(..., help="Decision title."),
+    body: str | None = typer.Option(None, "--body", help="Decision body/rationale."),
+    date_value: str | None = typer.Option(None, "--date", help="Decision date YYYY-MM-DD."),
+) -> None:
+    """Add a decision."""
+    trimmed = title.strip()
+    if not trimmed:
+        raise typer.BadParameter("Decision title must not be empty.")
+
+    decided_date = _parse_date(date_value) if date_value else None
+    now = _now_iso()
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        decision = Decision(
+            title=trimmed,
+            body=body.strip() if body else None,
+            decided_date=decided_date,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(decision)
+        session.commit()
+        session.refresh(decision)
+        typer.echo(_format_decision(decision))
+
+
+@decision_app.command("search")
+def decision_search(
+    query: str = typer.Argument(..., help="FTS5 search query."),
+) -> None:
+    """Search decisions using full-text search."""
+    trimmed = query.strip()
+    if not trimmed:
+        raise typer.BadParameter("Search query must not be empty.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        results = session.exec(
+            select(Decision)
+            .where(
+                Decision.id.in_(  # type: ignore[union-attr]
+                    select(sa.column("rowid"))
+                    .select_from(sa.text("decisions_fts"))
+                    .where(sa.text("decisions_fts MATCH :q"))
+                )
+            )
+            .params(q=trimmed)
+        ).all()
+
+    if not results:
+        typer.echo("No matches.")
+        return
+
+    for d in results:
+        typer.echo(_format_decision(d))
+
+
 # --- Commitment commands ---
 
 
@@ -487,11 +628,6 @@ _STATUS_PRIORITY_ORDER = {s: i for i, s in enumerate(
     [TaskStatus.NOW, TaskStatus.NEXT, TaskStatus.WAITING, TaskStatus.SOMEDAY, TaskStatus.DONE, TaskStatus.CANCELED]
 )}
 _PRIORITY_ORDER = {p: i for i, p in enumerate([TaskPriority.P1, TaskPriority.P2, TaskPriority.P3])}
-
-
-def _now_iso() -> str:
-    """Current UTC time as ISO-8601 with offset (consistent with models.py default_factory)."""
-    return datetime.now(_utc_tz.utc).isoformat()
 
 
 def _format_task(t: Task) -> str:
