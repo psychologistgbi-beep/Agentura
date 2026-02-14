@@ -25,7 +25,6 @@ _PRIORITY_SORT_ORDER: dict[TaskPriority, int] = {
 }
 _TASK_STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.NOW: 0,
-    TaskStatus.NEXT: 1,
 }
 
 _VARIANT_FILL_RATIO: dict[str, float] = {
@@ -90,6 +89,7 @@ class DayPlanResult:
     lunch_skipped: bool
     full_day_busy: bool
     suggestions_text: str | None
+    no_now_hint_text: str | None
 
 
 @dataclass(frozen=True)
@@ -161,6 +161,11 @@ def build_and_persist_day_plan(session: Session, *, plan_date: date, variant: st
         if full_day_busy
         else None
     )
+    no_now_hint_text = (
+        "No NOW tasks. Move NEXT -> NOW via execas task move <id> --status NOW."
+        if not ranked_tasks
+        else None
+    )
 
     return DayPlanResult(
         plan_date=plan_date,
@@ -173,6 +178,7 @@ def build_and_persist_day_plan(session: Session, *, plan_date: date, variant: st
         lunch_skipped=lunch_skipped,
         full_day_busy=full_day_busy,
         suggestions_text=suggestions_text,
+        no_now_hint_text=no_now_hint_text,
     )
 
 
@@ -225,7 +231,7 @@ def _parse_setting_int(raw_settings: dict[str, str], key: str, *, minimum: int) 
 
 
 def _load_candidate_tasks(session: Session) -> list[Task]:
-    rows = session.exec(select(Task).where(Task.status.in_([TaskStatus.NOW, TaskStatus.NEXT]))).all()
+    rows = session.exec(select(Task).where(Task.status == TaskStatus.NOW)).all()
     return sorted(
         rows,
         key=lambda task: (

@@ -230,6 +230,9 @@ def plan_day(
     if result.suggestions_text is not None:
         print(f"Suggestions: {result.suggestions_text}")
 
+    if result.no_now_hint_text is not None:
+        print(f"Hint: {result.no_now_hint_text}")
+
 
 VALID_DIFFICULTIES = {"D1", "D2", "D3", "D4", "D5"}
 

@@ -135,3 +135,66 @@ def test_lunch_picks_earlier_slot_on_equal_distance(tmp_path) -> None:
     assert len(lunch_blocks) == 1
     assert lunch_blocks[0].start_dt.strftime("%H:%M") == "10:30"
     assert lunch_blocks[0].end_dt.strftime("%H:%M") == "11:30"
+
+
+def test_plan_uses_only_now(tmp_path) -> None:
+    engine = _create_engine(tmp_path)
+    plan_date = date(2026, 2, 20)
+
+    with Session(engine) as session:
+        _seed_defaults(session)
+        session.add(
+            Task(
+                title="NEXT only task",
+                status=TaskStatus.NEXT,
+                priority=TaskPriority.P1,
+                estimate_min=30,
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        result = build_and_persist_day_plan(session, plan_date=plan_date, variant="realistic")
+
+    assert result.selected_tasks == []
+    assert result.didnt_fit_tasks == []
+    assert [block for block in result.blocks if block.type == "focus"] == []
+    assert result.no_now_hint_text == "No NOW tasks. Move NEXT -> NOW via execas task move <id> --status NOW."
+
+
+def test_plan_with_now_picks_now(tmp_path) -> None:
+    engine = _create_engine(tmp_path)
+    plan_date = date(2026, 2, 20)
+
+    with Session(engine) as session:
+        _seed_defaults(session)
+        session.add(
+            Task(
+                title="NOW task",
+                status=TaskStatus.NOW,
+                priority=TaskPriority.P1,
+                estimate_min=30,
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        result = build_and_persist_day_plan(session, plan_date=plan_date, variant="realistic")
+
+    assert [task.title for task in result.selected_tasks] == ["NOW task"]
+    assert result.no_now_hint_text is None
+
+
+def test_no_now_prints_hint(tmp_path) -> None:
+    engine = _create_engine(tmp_path)
+    plan_date = date(2026, 2, 20)
+
+    with Session(engine) as session:
+        _seed_defaults(session)
+
+    with Session(engine) as session:
+        result = build_and_persist_day_plan(session, plan_date=plan_date, variant="realistic")
+
+    assert result.selected_tasks == []
+    assert result.didnt_fit_tasks == []
+    assert result.no_now_hint_text == "No NOW tasks. Move NEXT -> NOW via execas task move <id> --status NOW."
