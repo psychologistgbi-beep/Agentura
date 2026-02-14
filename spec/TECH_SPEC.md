@@ -217,3 +217,16 @@ Milestone 2: Tasks CRUD + projects/areas + commitments import.
 Milestone 3: Plan day (3 variants) producing time_blocks and markdown output.
 Milestone 4: Yandex sync stubs via MCP (calendar + email), with fallback to manual.
 Milestone 5: Weekly review output (Sunday).
+## 14) Роль Business Coach (предусмотрено, не в MVP)
+
+Цель: отдельная роль (LLM-агент) для коучинговых интервью со мной и подготовки предложений по задачам/приоритетам, связанным с Year Commitments и текущей операционкой.
+
+Границы ответственности:
+- Business Coach общается со мной напрямую (интервью, уточнение контекста, критериев успеха, ограничений).
+- Business Coach передаёт Executive Assistant только рекомендации (предложения), но НЕ изменяет состояние системы напрямую.
+- Executive Assistant является единственным writer и источником правды: только он пишет в SQLite (создаёт/обновляет задачи, статусы, связи, планы).
+
+Интеграция (пока без протокола):
+- Coach -> Executive Assistant: предложения по созданию задач, изменению статусов (например NEXT->NOW), уточнению приоритетов/оценок, weekly focus (5–10 пунктов).
+- Применение изменений: вручную/через подтверждение пользователя. Формальный протокол изменений (ChangeSet/apply) может быть добавлен позже.
+
