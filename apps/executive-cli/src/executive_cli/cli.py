@@ -522,7 +522,7 @@ def task_capture(
     title: str = typer.Argument(..., help="Task title."),
     estimate: int = typer.Option(..., "--estimate", help="Estimate in minutes (>0)."),
     priority: str = typer.Option(..., "--priority", help="Priority: P1, P2, or P3."),
-    status: str = typer.Option("NOW", "--status", help="Initial status (NOW, NEXT, SOMEDAY)."),
+    status: str = typer.Option("NEXT", "--status", help="Initial status (NOW, NEXT, SOMEDAY)."),
     area_name: str | None = typer.Option(None, "--area", help="Area name."),
     project_name: str | None = typer.Option(None, "--project", help="Project name."),
     commitment_id: str | None = typer.Option(None, "--commitment", help="Commitment ID."),
@@ -584,6 +584,7 @@ def task_list(
     area_name: str | None = typer.Option(None, "--area", help="Filter by area name."),
     project_name: str | None = typer.Option(None, "--project", help="Filter by project name."),
     commitment_id: str | None = typer.Option(None, "--commitment", help="Filter by commitment ID."),
+    due: str | None = typer.Option(None, "--due", help="Filter by due date YYYY-MM-DD."),
 ) -> None:
     """List tasks with optional filters, sorted by status/priority/due/id."""
     with Session(get_engine(ensure_directory=True)) as session:
@@ -608,6 +609,10 @@ def task_list(
         if commitment_id is not None:
             cmt_id = _resolve_commitment_id(session, commitment_id)
             query = query.where(Task.commitment_id == cmt_id)
+
+        if due is not None:
+            due_date = _parse_date(due)
+            query = query.where(Task.due_date == due_date)
 
         tasks = session.exec(query).all()
 
