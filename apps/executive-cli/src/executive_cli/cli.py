@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone as _utc_tz
-from zoneinfo import ZoneInfo
 
 import typer
 from rich import print
@@ -24,8 +23,7 @@ from executive_cli.models import (
     TaskPriority,
     TaskStatus,
 )
-
-MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+from executive_cli.timeutil import MOSCOW_TZ, dt_to_db, parse_local_dt
 
 app = typer.Typer(
     name="execas",
@@ -101,8 +99,8 @@ def busy_add(
         calendar = _get_primary_calendar(session)
         block = BusyBlock(
             calendar_id=calendar.id,
-            start_dt=start_dt.isoformat(),
-            end_dt=end_dt.isoformat(),
+            start_dt=dt_to_db(start_dt),
+            end_dt=dt_to_db(end_dt),
             title=title,
         )
         session.add(block)
@@ -128,8 +126,8 @@ def busy_list(
         rows = session.exec(
             select(BusyBlock)
             .where(BusyBlock.calendar_id == calendar.id)
-            .where(BusyBlock.end_dt > day_start.isoformat())
-            .where(BusyBlock.start_dt < day_end.isoformat())
+            .where(BusyBlock.end_dt > dt_to_db(day_start))
+            .where(BusyBlock.start_dt < dt_to_db(day_end))
             .order_by(BusyBlock.start_dt, BusyBlock.id)
         ).all()
 
@@ -616,11 +614,9 @@ def task_waiting(
         raise typer.BadParameter("--on must not be empty.")
 
     try:
-        naive_dt = datetime.strptime(ping.strip(), "%Y-%m-%d %H:%M")
+        ping_dt = parse_local_dt(ping.strip())
     except ValueError as exc:
         raise typer.BadParameter("Invalid --ping format. Expected 'YYYY-MM-DD HH:MM'.") from exc
-
-    ping_dt = naive_dt.replace(tzinfo=MOSCOW_TZ)
 
     with Session(get_engine(ensure_directory=True)) as session:
         task = session.get(Task, task_id)
@@ -629,7 +625,7 @@ def task_waiting(
 
         task.status = TaskStatus.WAITING
         task.waiting_on = on_trimmed
-        task.ping_at = ping_dt.isoformat()
+        task.ping_at = dt_to_db(ping_dt)
         task.updated_at = _now_iso()
         session.commit()
         session.refresh(task)

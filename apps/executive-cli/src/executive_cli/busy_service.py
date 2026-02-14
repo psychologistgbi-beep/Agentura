@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from executive_cli.models import BusyBlock
+from executive_cli.timeutil import db_to_dt
 
 
 @dataclass
@@ -21,15 +22,15 @@ def merge_busy_blocks(rows: list[BusyBlock]) -> list[MergedBusyBlock]:
     parsed_rows = sorted(
         rows,
         key=lambda row: (
-            datetime.fromisoformat(row.start_dt),
+            db_to_dt(row.start_dt),
             row.id if row.id is not None else -1,
         ),
     )
 
     merged: list[MergedBusyBlock] = []
     for row in parsed_rows:
-        start_dt = datetime.fromisoformat(row.start_dt)
-        end_dt = datetime.fromisoformat(row.end_dt)
+        start_dt = db_to_dt(row.start_dt)
+        end_dt = db_to_dt(row.end_dt)
         row_title = row.title or "(untitled)"
 
         if not merged:
