@@ -1,4 +1,4 @@
-# Executive Assistant — Architecture & MVP Spec (v0.1)
+# Executive Assistant — Architecture & MVP Spec (v0.1, repo-aligned)
 
 ## 0) Context & goals (2-week outcomes)
 We are building a personal Executive Assistant system with:
@@ -6,7 +6,7 @@ We are building a personal Executive Assistant system with:
 - Weekly (Sunday): propose key weekly priorities based on both current inflow ("tekuchka") and strategic Year Commitments.
 - Knowledge consolidation: capture People + Decisions as first-class entities; enable full-text search.
 
-MVP aims to include Yandex Mail + Yandex Calendar integration via MCP-backed connectors (start with primary calendar and primary mailbox). If MCP is unavailable, ship manual fallbacks.
+MVP must include Yandex Mail + Yandex Calendar integration via MCP-backed connectors (start with primary calendar and primary mailbox).
 
 ## 1) Non-goals for MVP
 - Multi-calendar conflict resolution and dedup across accounts (we start with ONE primary calendar).
@@ -16,38 +16,42 @@ MVP aims to include Yandex Mail + Yandex Calendar integration via MCP-backed con
 ## 2) High-level architecture
 Three layers:
 1) Skills layer (filesystem packages): reusable instructions/templates/examples (already in repo).
-2) Data layer (SQLite): single source of truth for tasks, plans, calendar busy blocks, people, decisions, commitments.
+2) Data layer (SQLite): single source of truth for tasks, plans, calendar busy blocks, people, decisions, commitments, weekly reviews.
 3) Execution layer (CLI): commands to capture/triage tasks, sync calendar/email, produce plans and weekly review outputs.
 
 LLM usage:
-- `plan day` is **deterministic** (no LLM); variant selection and task ranking use fixed rules.
-- LLM may be used later for: weekly review narrative, drafting follow-ups, and future "smart suggest" features.
-- The system state remains in SQLite; any LLM output must be translated into explicit DB updates by the Executive Assistant (single writer).
+- `plan day` is deterministic (no LLM).
+- LLM may be used later for narrative/drafting and “smart suggest”, BUT system state remains in SQLite; LLM output must be translated into explicit DB updates.
 
 ## 3) Time model & timezone
 - Primary timezone: Europe/Moscow.
-- All CLI inputs/outputs are interpreted in Europe/Moscow unless explicitly specified.
-- **Storage format (ADR-01):** store all datetimes as ISO-8601 strings with explicit offset (e.g. `2026-02-15T10:00:00+03:00`). SQLite column type `TEXT`.
-- Comparison/sorting: do not rely on TEXT ordering across mixed offsets; normalize via application code where needed.
-- Conversions must be tested (roundtrip coverage).
+- All CLI inputs/outputs interpreted in Europe/Moscow unless explicitly specified.
+- Storage format: datetimes stored as ISO-8601 strings with explicit offset, in SQLite TEXT (e.g. `2026-02-15T10:00:00+03:00`).
+- All DB read/write for datetimes must go through timeutil helpers (`dt_to_db`, `db_to_dt`, parse helpers). Conversions covered by tests.
 
 ## 4) Scheduling constraints (initial values, user-configurable)
-- Planning window: every day 07:00–19:00.
-- Lunch: default 12:00, duration 60 minutes, movable deterministically if conflicts.
-- Minimum focus block: 30 minutes.
-- Buffer policy: a single `buffer_min` setting (default **5** minutes), applied between adjacent scheduled blocks.
+Stored in settings, editable via CLI:
+- planning_start: 07:00
+- planning_end: 19:00
+- lunch_start: 12:00
+- lunch_duration_min: 60
+- buffer_min: 5
+- min_focus_block_min: 30
+- timezone: Europe/Moscow
 
-All these values must be stored in DB settings and modifiable via CLI.
+Policy:
+- buffer_min applied between adjacent scheduled blocks.
+- min_focus_block_min is minimum focus block duration; gaps smaller than this are never used for focus.
 
 ## 5) GTD task model
 Statuses (enum):
 - NOW, NEXT, WAITING, SOMEDAY, DONE, CANCELED
 
-Task fields (minimum):
+Minimum fields:
 - title (string)
 - status (enum)
-- project_id (FK)
-- area_id (FK)
+- project_id (FK, nullable)
+- area_id (FK, nullable)
 - commitment_id (nullable FK)
 - priority (P1/P2/P3)
 - estimate_min (int, required)
@@ -57,11 +61,13 @@ Task fields (minimum):
 - ping_at (datetime, required if WAITING)
 - created_at, updated_at
 
-Projects/Areas:
-- Implement as reference tables (not free-text).
+Key behavior (repo-aligned):
+- `task capture` default status = NEXT.
+- Planner schedules ONLY NOW tasks.
+- Weekly review shows Action list: NOW + WAITING, and separately proposes NEXT → NOW.
 
-## 6) Commitments (from Strategic Contract 2026 v1.1)
-Persist Year Commitments 2026:
+## 6) Commitments (Strategic Contract 2026 v1.1)
+Persist Year Commitments 2026 (seeded by `execas commitment import`):
 - YC-1 (D3): by 31.12.2026 raised >= 25M RUB investments in a venture project where user is key initiator/founder.
 - YC-2 (D5): by 31.12.2026 created a series of graphic art objects and commercialized them.
 - YC-3 (D4): by 31.12.2026 spent >= 4 weeks in an English-speaking professional environment with recorded results in English.
@@ -74,40 +80,43 @@ Commitment fields:
 - difficulty
 - notes/evidence
 
-## 7) Knowledge consolidation (MVP scope)
-Entities (as implemented in DB):
-- People: name, role, context, created_at, updated_at
-- Decisions: title, body, decided_date, created_at, updated_at
+Note: due_date may be coarse (end of year). Weekly review should still produce “off-track” nudges using recency of task creation linked to commitments.
 
-Full-text search:
-- SQLite FTS5 for People + Decisions (MATCH queries via CLI).
+## 7) Knowledge consolidation (MVP scope)
+Entities (repo-aligned):
+- People: (name, role, context, created_at, updated_at) with FTS5 over name/role/context.
+- Decisions: (title, body, decided_date, created_at, updated_at) with FTS5 over title/body.
+
+No org/notes/choice/consequences fields in MVP schema (can be added later via migration).
 
 ## 8) Calendar integration (Yandex) — MVP design
 Start with ONE primary calendar.
-- Preferred: MCP connector talking CalDAV (Yandex supports CalDAV).
-- If MCP is unavailable: manual busy add/list remains MVP-complete.
+
+Integration method:
+- Prefer MCP connector that talks CalDAV.
+- If MCP not available, allow manual busy add/list.
 
 Busy blocks:
-- Stored as raw rows (merge-on-read per ADR-03).
-- DB-level invariant: end_dt must be after start_dt (enforced by CHECK constraint).
+- Stored raw in busy_blocks (merge-on-read).
+- Busy interval integrity enforced at DB layer: end_dt must be strictly after start_dt.
 
-## 9) Email integration (Yandex) — MVP design (planned/stub)
-Target: read-only sync of inbox metadata + ability to create follow-up tasks from emails.
-- Preferred: MCP connector via IMAP (Yandex supports IMAP).
-- Data model for emails is planned (may be delivered as stub first).
-- No hard dependency for plan-day/weekly-review correctness.
+Observation:
+- MVP target cadence: sync/observe calendar ~1x/hour on laptop.
+
+## 9) Email integration (Yandex) — MVP design
+MVP: read-only sync of inbox metadata + ability to create follow-up tasks from emails.
+- Prefer MCP connector (IMAP/Exchange capability depending on account).
+- Security: credentials never stored in repo; use environment variables and local-only secrets (.env excluded from git).
 
 ## 10) CLI contract (apps/executive-cli)
-Executable name: execas
+Executable: execas
 
-Core commands:
+Core:
 - execas init
-  - creates SQLite DB, runs migrations, seeds primary calendar + default settings (timezone=Europe/Moscow)
 - execas config show
-- execas config set <key> <value>
-  Keys include planning_start, planning_end, lunch_start, lunch_duration_min, buffer_min, timezone, min_focus_block_min
+- execas config set <key> <value
 
-Busy blocks:
+Busy:
 - execas busy add --date YYYY-MM-DD --start HH:MM --end HH:MM --title "..."
 - execas busy list --date YYYY-MM-DD
 
@@ -120,60 +129,57 @@ Areas & Projects:
 Commitments:
 - execas commitment add --id YC-N --title "..." --metric "..." --due YYYY-MM-DD --difficulty DN [--notes "..."]
 - execas commitment list
-- execas commitment import   (seed YC-1..YC-3 from spec; idempotent)
+- execas commitment import
 
 Tasks:
-- execas task capture "title" --estimate 30 --priority P2 [--project X] [--area Y] [--commitment YC-1]
-  - default status is NEXT
+- execas task capture "title" --estimate 30 --priority P2 [--project X] [--area Y] [--commitment YC-1] [--due YYYY-MM-DD]
 - execas task list [--status NOW] [--due YYYY-MM-DD]
 - execas task move <task_id> --status NOW|NEXT|WAITING|SOMEDAY|DONE|CANCELED
 - execas task done <task_id>
 - execas task waiting <task_id> --on "Person/Thing" --ping "YYYY-MM-DD HH:MM"
 
-People (FTS):
+People (repo-aligned):
 - execas people add [NAME] [--name "NAME"] [--role "..."] [--context "..."]
-- execas people search "query" (FTS)
+- execas people search "query" (FTS5)
 
-Decisions (FTS):
+Decisions (repo-aligned):
 - execas decision add [TITLE] [--title "TITLE"] [--body "..."] [--date YYYY-MM-DD]
-- execas decision search "query" (FTS)
+- execas decision search "query" (FTS5)
 
 Planning:
 - execas plan day --date YYYY-MM-DD --variant minimal|realistic|aggressive
-Outputs:
-- Print a time-block schedule with timestamps and block type.
-- Also store day_plans + time_blocks in DB.
+Output:
+- Prints time-block schedule with timestamps and block type.
+- Stores day_plans + time_blocks in DB (replace-on-rerun per (date, variant)).
 
-## 11) Planning algorithm (deterministic)
+Weekly:
+- execas review week --week YYYY-Www
+Output:
+- Markdown weekly review persisted to DB.
+- Action list: NOW + WAITING only.
+- Proposals: NEXT → NOW separate section.
+
+## 11) Planning algorithm (deterministic; repo-aligned)
 Inputs:
-- planning window settings for date
+- settings: planning window, lunch, buffer, min_focus_block
 - busy blocks for date (merged & sorted)
-- lunch block (movable)
-- tasks in NOW (primary candidates; planner uses NOW-only and prints hint if none)
-- constraints: min_focus_block_min, buffer_min
+- tasks in NOW only
 
 Steps:
-1) Build free windows by subtracting merged busy blocks from planning window.
-2) Reserve lunch: if lunch overlaps busy, shift deterministically to nearest feasible midday slot.
-3) Rank tasks deterministically (priority + commitment + due urgency).
+1) Build free windows = planning window minus merged busy.
+2) Reserve lunch: default slot at lunch_start, shift deterministically if busy (nearest feasible midday slot; earlier on tie). If no feasible slot → lunch skipped with note.
+3) Rank NOW tasks deterministically.
 4) Fill variant-specific % of FREE time (after busy+lunch):
    - minimal: <=50%
    - realistic: ~75%
    - aggressive: ~95%
-5) Insert buffer_min between blocks.
-6) Output time_blocks with types: busy, focus, admin, lunch, buffer.
-7) Rationale: selected tasks, didn’t fit, and suggestions (e.g., full day busy).
+5) Fit tasks as single focus blocks (no split).
+6) Emit full timeline of blocks: busy, lunch, focus, buffer, admin.
+7) Rationale: selected tasks, didn’t fit (with deterministic reason), and hints for edge cases:
+   - If no NOW tasks: print explicit hint to move NEXT → NOW.
+   - If day fully busy: print suggestion to carry tasks to tomorrow / reduce variant.
 
-Out of scope:
-- LLM-based planning.
-- Task splitting (no split by default).
-
-Edge cases:
-- Day fully busy -> output only busy + suggestions.
-- Tiny gaps < min_focus_block -> do not schedule focus; represent as admin/buffer.
-- Overlapping/adjacent busy blocks -> merged on read.
-
-## 12) Data schema (SQLite)
+## 12) Data schema (SQLite, MVP)
 Tables (minimum):
 - settings(key TEXT PRIMARY KEY, value TEXT)
 - areas(id, name UNIQUE)
@@ -181,44 +187,44 @@ Tables (minimum):
 - commitments(id TEXT PRIMARY KEY, title, metric, due_date, difficulty, notes)
 - tasks(...)
 - calendars(id, slug UNIQUE, name, timezone)
-- busy_blocks(id, calendar_id FK, start_dt TEXT, end_dt TEXT, title TEXT, CHECK end_dt>start_dt)
-- day_plans(id, date, variant, created_at, source, UNIQUE(date,variant))
-- time_blocks(id, day_plan_id FK, start_dt, end_dt, type, task_id nullable, label)
-- people(id, name, role, context, created_at, updated_at)
-- decisions(id, title, body, decided_date, created_at, updated_at)
-- emails(...) (planned)
+- busy_blocks(id, calendar_id FK, start_dt TEXT, end_dt TEXT, title TEXT, CHECK end_dt > start_dt)
+- day_plans(id, date TEXT, variant TEXT, created_at TEXT, source TEXT, UNIQUE(date, variant))
+- time_blocks(id, day_plan_id FK, start_dt TEXT, end_dt TEXT, type TEXT, task_id nullable, label TEXT)
+- people(id, name, role, context, created_at, updated_at) + people_fts (FTS5 + triggers)
+- decisions(id, title, body, decided_date, created_at, updated_at) + decisions_fts (FTS5 + triggers)
+- weekly_reviews(id, week TEXT UNIQUE, created_at TEXT, body_md TEXT)
 
-FTS (ADR-04) as implemented:
-- people_fts(name, role, context) — maintained via triggers
-- decisions_fts(title, body) — maintained via triggers
+Email tables may be added later (TASK 11+), keep secrets out of repo.
 
-Day plan upsert policy (ADR-05):
-- Re-running `plan day` for an existing (date, variant) replaces the previous plan (DELETE + INSERT).
-
-## 13) Quality gates
+## 13) Quality gates (repo-aligned)
 - Unit tests for:
-  - time calculations + merging busy blocks
-  - planning invariants
-  - FTS search basic functionality
-- Coverage gate: `pytest --cov=executive_cli --cov-fail-under=80`
-- CLI --help works for all commands.
-- Migrations reproducible from empty DB.
+  - timeutil roundtrip + parsing strictness
+  - merge-on-read busy logic (overlap + adjacency)
+  - planning invariants (variants, lunch shift, tiny gap, determinism, full-busy, no-NOW hint)
+  - FTS People/Decisions basic behavior
+  - weekly review determinism + replace-on-rerun
+- Coverage gate: pytest-cov with --cov-fail-under=80
+- Migrations reproducible from empty DB
+- CLI --help works for all commands
 
-## 14) Deliverables in 2 weeks
-Milestone 1: Bootstrap + config + schema + manual busy add/list.
-Milestone 2: Tasks CRUD + projects/areas + commitments import.
-Milestone 3: Plan day (3 variants) producing time_blocks and rationale output.
-Milestone 4: Yandex sync stubs via MCP (calendar + email), with fallback to manual.
-Milestone 5: Weekly review output (Sunday).
+## 14) Business Coach role ( предусмотрено, не в MVP)
+Purpose: LLM-assisted coaching interviews with the user to clarify priorities, define next actions, and propose tasks linked to Year Commitments and operational workload.
 
-## 15) Роль Business Coach (предусмотрено, не в MVP)
-Цель: отдельная роль (LLM-агент) для коучинговых интервью со мной и подготовки предложений по задачам/приоритетам, связанным с Year Commitments и текущей операционкой.
+Boundaries:
+- Business Coach talks to the user directly.
+- Business Coach produces proposals only (no direct writes).
+- Executive Assistant is the single writer and source of truth (only it writes SQLite).
 
-Границы ответственности:
-- Business Coach общается со мной напрямую (интервью, уточнение контекста, критериев успеха, ограничений).
-- Business Coach передаёт Executive Assistant только рекомендации (предложения), но НЕ изменяет состояние системы напрямую.
-- Executive Assistant является единственным writer и источником правды: только он пишет в SQLite (создаёт/обновляет задачи, статусы, связи, планы).
+Integration (minimal, no protocol yet):
+- Coach → EA: proposals to create tasks, adjust priorities/estimates, suggest NEXT→NOW moves, and weekly focus candidates.
+- Application of changes: user-confirmed (manual) for MVP.
 
-Интеграция (без формального протокола на этом этапе):
-- Coach -> Executive Assistant: предложения по созданию задач, изменению статусов (например NEXT->NOW), уточнению приоритетов/оценок, weekly focus (5–10 пунктов).
-- Применение изменений: вручную/через подтверждение пользователя. Формальный протокол ChangeSet/apply может быть добавлен позже.
+## 15) Agent: Chief Architect (project-level)
+We will create a dedicated project agent that acts as the “Chief Architect” and handles architecture decisions, migrations, integration strategy (MCP/CalDAV/IMAP), and security posture.
+
+Best-practice guardrails:
+- Use project instructions via AGENTS.md / equivalent to define scope, autonomy, and rules. (AGENTS.md concept)   [oai_citation:1‡reymer.ai](https://reymer.ai/knowledge/coding-agents-guide)
+- Use “skills” (reusable instruction blocks) for recurring work: migrations, testing, connectors, threat-modeling.  [oai_citation:2‡reymer.ai](https://reymer.ai/knowledge/coding-agents-guide)
+- Secrets never in repo; use environment variables / local-only .env excluded by .gitignore.  [oai_citation:3‡reymer.ai](https://reymer.ai/knowledge/coding-agents-guide)
+- Work in small, verifiable increments: run tests + migrations; commit atomic changes; keep a clean git history.
+- Always produce: decision record (ADR update), acceptance checks, and rollback notes for architectural changes.
