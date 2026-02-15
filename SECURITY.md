@@ -11,10 +11,15 @@ This document defines mandatory operational safeguards for local development and
 
 Recommended env naming:
 
-- `YANDEX_CALDAV_USERNAME`
-- `YANDEX_CALDAV_APP_PASSWORD`
-- `YANDEX_IMAP_USERNAME`
-- `YANDEX_IMAP_APP_PASSWORD`
+- `EXECAS_CALDAV_URL`
+- `EXECAS_CALDAV_USERNAME`
+- `EXECAS_CALDAV_PASSWORD`
+- `EXECAS_IMAP_HOST`
+- `EXECAS_IMAP_PORT`
+- `EXECAS_IMAP_USERNAME`
+- `EXECAS_IMAP_PASSWORD`
+
+Note: these names match the active connector implementation in `apps/executive-cli/src/executive_cli/connectors/`.
 
 ## 2. Git hygiene
 

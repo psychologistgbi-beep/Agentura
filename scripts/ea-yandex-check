@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/ea-yandex-check [--only-smoke] [--skip-hourly]
+
+Interactive secure helper for EA:
+- prompts for Yandex CalDAV + IMAP credentials,
+- exports variables only for this process,
+- runs integration checks without writing secrets to disk.
+
+Flags:
+  --only-smoke   Run only calendar + mail smoke checks
+  --skip-hourly  Skip combined hourly sync check
+USAGE
+}
+
+ONLY_SMOKE=0
+SKIP_HOURLY=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --only-smoke)
+      ONLY_SMOKE=1
+      shift
+      ;;
+    --skip-hourly)
+      SKIP_HOURLY=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+APP_DIR="${REPO_ROOT}/apps/executive-cli"
+
+read -r -p "CalDAV URL (https://...): " EXECAS_CALDAV_URL
+read -r -p "CalDAV username: " EXECAS_CALDAV_USERNAME
+read -r -s -p "CalDAV password/app-password: " EXECAS_CALDAV_PASSWORD
+printf "\n"
+
+read -r -p "IMAP host [imap.yandex.com]: " IMAP_HOST_INPUT
+read -r -p "IMAP username: " EXECAS_IMAP_USERNAME
+read -r -s -p "IMAP password/app-password: " EXECAS_IMAP_PASSWORD
+printf "\n"
+read -r -p "IMAP port [993]: " IMAP_PORT_INPUT
+
+if [[ -z "${IMAP_HOST_INPUT}" ]]; then
+  EXECAS_IMAP_HOST="imap.yandex.com"
+else
+  EXECAS_IMAP_HOST="${IMAP_HOST_INPUT}"
+fi
+
+if [[ -z "${IMAP_PORT_INPUT}" ]]; then
+  EXECAS_IMAP_PORT="993"
+else
+  EXECAS_IMAP_PORT="${IMAP_PORT_INPUT}"
+fi
+
+export EXECAS_CALDAV_URL
+export EXECAS_CALDAV_USERNAME
+export EXECAS_CALDAV_PASSWORD
+export EXECAS_IMAP_HOST
+export EXECAS_IMAP_PORT
+export EXECAS_IMAP_USERNAME
+export EXECAS_IMAP_PASSWORD
+
+unset IMAP_HOST_INPUT IMAP_PORT_INPUT
+
+echo "[EA] Running smoke checks..."
+(
+  cd "${APP_DIR}"
+  uv run execas calendar sync
+  uv run execas mail sync --mailbox INBOX
+)
+
+if [[ "${ONLY_SMOKE}" -eq 1 ]]; then
+  echo "[EA] Smoke checks completed."
+  exit 0
+fi
+
+if [[ "${SKIP_HOURLY}" -eq 0 ]]; then
+  echo "[EA] Running hourly integration check..."
+  (
+    cd "${APP_DIR}"
+    uv run execas sync hourly --retries 2 --backoff-sec 5
+  )
+fi
+
+echo "[EA] Integration checks completed."

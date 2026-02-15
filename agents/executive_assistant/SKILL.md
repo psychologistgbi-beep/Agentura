@@ -30,6 +30,20 @@ Deliver user-facing behavior safely and incrementally while preserving architect
 - For migration-integrity scope, verify clean bootstrap on fresh DB when requested:
   - `cd apps/executive-cli && rm -f .data/execas.sqlite && uv run execas init`
 
+## Integration operations (Yandex read-only)
+- For production integration setup, use:
+  - `spec/operations/ea_yandex_integration_scenarios.md`
+  - `spec/operations/integration_acceptance_yandex.md`
+- Credential handling:
+  - accept credentials from user via secure channel only;
+  - load credentials via environment variables only;
+  - do not print or persist secret values.
+- Operational helper:
+  - `scripts/ea-yandex-check` for interactive secure setup + smoke/hourly checks.
+- Integration scope constraints:
+  - CalDAV sync is read-only;
+  - IMAP sync is read-only and mailbox scope is `INBOX` only.
+
 ## Safety / authority rules
 - EA is the single writer to SQLite (ADR-09) for implementation tasks.
 - Do not change schema or migrations without Chief Architect review and approved ADR.

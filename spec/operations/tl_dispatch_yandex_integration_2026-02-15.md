@@ -20,10 +20,12 @@ Goal:
 
 Artifacts:
 - `spec/operations/integration_acceptance_yandex.md`
+- `spec/operations/ea_yandex_integration_scenarios.md`
 
 Acceptance:
 - Checklist is testable and maps to commands.
 - No policy conflicts with `AGENTS.md` security section.
+- EA scenario document defines secure credential handoff and operational flow.
 
 ### INT-ARCH-01 (Chief Architect)
 

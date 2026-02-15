@@ -7,6 +7,12 @@ cd /Users/gaidabura/Agentura/apps/executive-cli
 uv run execas sync hourly --retries 2 --backoff-sec 5
 ```
 
+Credential setup helper for EA live checks:
+```bash
+cd /Users/gaidabura/Agentura
+scripts/ea-yandex-check
+```
+
 Default policy:
 - `--retries 2` per source (calendar and mail separately)
 - `--backoff-sec 5`
