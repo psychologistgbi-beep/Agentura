@@ -27,8 +27,9 @@ Convert approved plans into predictable delivery while maintaining architecture 
    - Confirm goal, scope, and sequence of tasks.
    - Lock the plan baseline for the current batch.
 2. Dispatch tasks:
-   - Assign each task to one role (Chief Architect / EA / Developer Helper / Business Coach).
+   - Assign each task to one role (Chief Architect / EA / Developer Helper / Business Coach / System Analyst / Product Owner / Scrum Master / QA/SET / DevOps/SRE).
    - Require minimal preflight stamp before implementation work.
+   - For parallel batches, enforce lane readiness and file-lock rules from `spec/operations/parallel_delivery_protocol.md`.
 3. Review incoming commits:
    - Validate authority boundaries and gate report completeness.
    - Validate quality-gate evidence (`pytest`, coverage, migration integrity when applicable).
@@ -36,6 +37,13 @@ Convert approved plans into predictable delivery while maintaining architecture 
 4. Integrate and push:
    - Ensure accepted commits are coherent and atomic.
    - Push without force to the intended branch only after all checks pass.
+
+## Parallel orchestration rules
+- Build a lane map before execution: lane id, role owner, dependency type, file scope.
+- Allow concurrent execution only for disjoint scopes or locked shared files.
+- Keep acceptance per-lane and commit-scoped; never batch-accept unresolved lanes.
+- Resolve lane conflicts by explicit TL verdict (accept one, reject/rework another if needed).
+- Track active lanes using `spec/templates/PARALLEL_WORKBOARD_TEMPLATE.md`.
 
 ## Acceptance checklist (before push)
 - [ ] Task was part of user-approved plan baseline.

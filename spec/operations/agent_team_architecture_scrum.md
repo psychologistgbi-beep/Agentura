@@ -84,3 +84,10 @@ Define an operational architecture for a multi-agent development team that can d
 - Predictable delivery through explicit gates.
 - Higher release confidence through QA/SET + DevOps/SRE integration.
 - Stronger business alignment via PO + SA partnership.
+
+## 9. Parallel Execution Model
+
+- Team may run concurrent lanes for requirements, implementation, quality, and operations.
+- Technical Lead owns lane orchestration and conflict resolution.
+- Scrum Master monitors flow health and blocked-lane recovery.
+- Parallel execution rules are normative in `spec/operations/parallel_delivery_protocol.md`.

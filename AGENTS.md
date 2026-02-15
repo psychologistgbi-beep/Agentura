@@ -286,6 +286,13 @@ No broken imports, no syntax errors. The test suite implicitly validates this.
 - Large changes must be split into sequential commits.
 - No silent spec divergence: if implementation deviates from spec, update spec in the same commit.
 
+### Parallel delivery discipline
+- Parallel execution is allowed only for tasks in an approved baseline.
+- Every parallel lane must have explicit owner role, file scope, dependency type, and acceptance checks.
+- Shared high-risk files require a Technical Lead lock owner before concurrent work starts.
+- Acceptance remains commit-based: each lane must provide its own gate report and quality evidence.
+- Canonical protocol: `spec/operations/parallel_delivery_protocol.md`
+
 ---
 
 ## 7. Agent Runtime & Verification
@@ -426,3 +433,16 @@ uv run execas review week --week 2026-W08
 uv run pytest -q
 uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80
 ```
+
+---
+
+## 9. Parallel Work Protocol
+
+Parallel work is a first-class delivery mode and must follow `spec/operations/parallel_delivery_protocol.md`.
+
+Mandatory constraints:
+- Lane entry gate is required: task id, role owner, dependency tag, file scope, acceptance checks.
+- Session rule: one active lane per terminal/session context, preflight required per lane session.
+- File lock rule: concurrent edits to locked high-risk files require explicit Technical Lead lock ownership.
+- Integration rule: only accepted commits from each lane can be integrated and pushed.
+- Escalation rule: blocked lanes are escalated to Technical Lead + Scrum Master, with user re-alignment when baseline changes.

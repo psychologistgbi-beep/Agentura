@@ -108,3 +108,14 @@ Escalate to user and pause downstream work when any of the following occurs:
 - authority conflict between roles;
 - quality-gate failure without agreed mitigation;
 - security or secrets policy violation.
+
+## 12. Parallel Delivery Standards
+
+- Parallel lanes are allowed only when lane readiness is satisfied (owner, scope, dependency, checks).
+- Recommended maximum active lanes per batch: 4.
+- Lane dependency tags are mandatory: `none`, `soft`, `hard`.
+- High-risk shared files must have a TL lock owner before concurrent execution.
+- Each lane must produce an independent gate report and acceptance evidence.
+- Integration order defaults to: architecture/requirements -> implementation -> quality -> operations.
+- Operational template for active batches: `spec/templates/PARALLEL_WORKBOARD_TEMPLATE.md`.
+- Protocol reference: `spec/operations/parallel_delivery_protocol.md`.
