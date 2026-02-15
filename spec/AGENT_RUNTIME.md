@@ -83,8 +83,18 @@ Agent skill definitions are stored in the repository under a predictable path st
 │   │   └── SKILL.md                   # Executive Assistant profile
 │   ├── developer_helper/
 │   │   └── SKILL.md                   # Developer Helper profile
-│   └── business_coach/
-│       └── SKILL.md                   # Business Coach profile
+│   ├── business_coach/
+│   │   └── SKILL.md                   # Business Coach profile
+│   ├── system_analyst/
+│   │   └── SKILL.md                   # System Analyst profile
+│   ├── product_owner/
+│   │   └── SKILL.md                   # Product Owner profile
+│   ├── scrum_master/
+│   │   └── SKILL.md                   # Scrum Master profile
+│   ├── qa_set/
+│   │   └── SKILL.md                   # QA/SET profile
+│   └── devops_sre/
+│       └── SKILL.md                   # DevOps/SRE profile
 └── spec/
     ├── AGENT_RUNTIME.md               # This file (core policy + layer model)
     ├── AGENT_RUNTIME_ADAPTERS.md      # Per-runtime adapter details
@@ -112,6 +122,11 @@ These paths are part of the core policy layer. Each runtime adapter describes ho
 | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
 | Developer Helper | `agents/developer_helper/SKILL.md` |
 | Business Coach | `agents/business_coach/SKILL.md` |
+| System Analyst | `agents/system_analyst/SKILL.md` |
+| Product Owner | `agents/product_owner/SKILL.md` |
+| Scrum Master | `agents/scrum_master/SKILL.md` |
+| QA/SET | `agents/qa_set/SKILL.md` |
+| DevOps/SRE | `agents/devops_sre/SKILL.md` |
 
 ### Strict skill discovery policy
 
@@ -133,7 +148,7 @@ These paths are part of the core policy layer. Each runtime adapter describes ho
 
 ## 4. Agent Verification Gate (runtime-agnostic)
 
-When an agent operates in any role (Chief Architect, Technical Lead, EA, Developer Helper, etc.) on an architecture or development task, its output must include verifiable markers that demonstrate it actually followed the role's constraints. This verification gate is **mandatory for all runtimes and all task types** (architecture and development) — the same 7-section report structure applies whether the agent runs on Codex, Claude, or any other LLM.
+When an agent operates in any role (Chief Architect, Technical Lead, EA, Developer Helper, System Analyst, Product Owner, Scrum Master, QA/SET, DevOps/SRE, etc.) on an architecture or development task, its output must include verifiable markers that demonstrate it actually followed the role's constraints. This verification gate is **mandatory for all runtimes and all task types** (architecture and development) — the same 7-section report structure applies whether the agent runs on Codex, Claude, or any other LLM.
 
 ### Required sections in a gate report
 
@@ -267,7 +282,7 @@ These invariants hold regardless of which agent or runtime is operating:
 
 | Term | Definition |
 |------|-----------|
-| **Agent role** | A named responsibility scope (Chief Architect, Technical Lead, EA, Developer Helper, Business Coach) defined in AGENTS.md with explicit authority boundaries |
+| **Agent role** | A named responsibility scope (Chief Architect, Technical Lead, EA, Developer Helper, Business Coach, System Analyst, Product Owner, Scrum Master, QA/SET, DevOps/SRE) defined in AGENTS.md with explicit authority boundaries |
 | **Runtime adapter** | Per-LLM configuration that maps core policy files to the LLM's instruction injection mechanism (see AGENT_RUNTIME_ADAPTERS.md) |
 | **Skill discovery** | The process by which a runtime locates and loads agent skill files (SKILL.md, templates, task specs) |
 | **Verification gate** | The 7-section structured report that proves an agent operated within its assigned role (section 4 of this document) |

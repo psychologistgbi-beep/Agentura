@@ -12,10 +12,16 @@ Roles:
   ea  Executive Assistant
   dh  Developer Helper
   bc  Business Coach
+  sa  System Analyst
+  po  Product Owner
+  sm  Scrum Master
+  qa  QA/SET
+  sre DevOps/SRE
 
 Examples:
   codex-role tl "Согласуй план на ближайшие 3 задачи и выдай task briefs."
   codex-role ea --exec "Реализуй OPS-02 по spec/TASKS/..."
+  codex-role sa "Подготовь требования и acceptance criteria для Sprint Goal."
 EOF
 }
 
@@ -63,6 +69,26 @@ case "${ROLE_KEY}" in
   bc)
     ROLE_NAME="Business Coach"
     SKILL_PATH="agents/business_coach/SKILL.md"
+    ;;
+  sa)
+    ROLE_NAME="System Analyst"
+    SKILL_PATH="agents/system_analyst/SKILL.md"
+    ;;
+  po)
+    ROLE_NAME="Product Owner"
+    SKILL_PATH="agents/product_owner/SKILL.md"
+    ;;
+  sm)
+    ROLE_NAME="Scrum Master"
+    SKILL_PATH="agents/scrum_master/SKILL.md"
+    ;;
+  qa)
+    ROLE_NAME="QA/SET"
+    SKILL_PATH="agents/qa_set/SKILL.md"
+    ;;
+  sre)
+    ROLE_NAME="DevOps/SRE"
+    SKILL_PATH="agents/devops_sre/SKILL.md"
     ;;
   *)
     echo "Unknown role: ${ROLE_KEY}" >&2

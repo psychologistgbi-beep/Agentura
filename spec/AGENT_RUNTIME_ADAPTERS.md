@@ -33,6 +33,11 @@ This document describes how each supported LLM runtime discovers and loads the A
 | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
 | Developer Helper | `agents/developer_helper/SKILL.md` |
 | Business Coach | `agents/business_coach/SKILL.md` |
+| System Analyst | `agents/system_analyst/SKILL.md` |
+| Product Owner | `agents/product_owner/SKILL.md` |
+| Scrum Master | `agents/scrum_master/SKILL.md` |
+| QA/SET | `agents/qa_set/SKILL.md` |
+| DevOps/SRE | `agents/devops_sre/SKILL.md` |
 
 ### Strict skill discovery policy
 
@@ -49,8 +54,8 @@ This matrix defines permission baseline expectations per runtime. Commands liste
 
 | Runtime | Baseline-safe command groups | Notes |
 |--------|------------------------------|-------|
-| Codex | `git status`, `git diff`, `git diff --name-only`, `rg`, `ls`, `cat`, `sed -n`, `git add <paths>`, `git commit -m`, `git push` (Technical Lead only, guardrailed), `uv run pytest -q`, `uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80`, `uv run execas <local-only command>`, `rm -f .data/execas.sqlite`, `rm -f apps/executive-cli/.data/execas.sqlite` | Role-scoped by `AGENTS.md` section 7. `EA` gets implementation/migration commands; Technical Lead gets orchestration/acceptance/push within approved plan scope. `rm -f ...execas.sqlite` is migration-integrity-only carve-out. |
-| Claude | Same baseline-safe set as Codex via Bash tool | Role-scoped by `AGENTS.md` section 7 and `CLAUDE.md` runtime rules; Technical Lead push is allowed only under guardrails; same migration-integrity-only carve-out for `execas.sqlite`. |
+| Codex | `git status`, `git diff`, `git diff --name-only`, `rg`, `ls`, `cat`, `sed -n`, `git add <paths>`, `git commit -m`, `git push` (Technical Lead only, guardrailed), `uv run pytest -q`, `uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80`, `uv run execas <local-only command>`, `rm -f .data/execas.sqlite`, `rm -f apps/executive-cli/.data/execas.sqlite` | Role-scoped by `AGENTS.md` section 7. `EA` gets implementation/migration commands; `QA/SET` can run quality-gate flows; `DevOps/SRE` can update CI/runbooks; Technical Lead gets orchestration/acceptance/push within approved plan scope. `rm -f ...execas.sqlite` is migration-integrity-only carve-out. |
+| Claude | Same baseline-safe set as Codex via Bash tool | Role-scoped by `AGENTS.md` section 7 and `CLAUDE.md` runtime rules; Technical Lead push is allowed only under guardrails; `QA/SET` and `DevOps/SRE` follow their scoped command limits; same migration-integrity-only carve-out for `execas.sqlite`. |
 | Generic runtime | Read-only inspection commands only unless user runs commands manually | No auto-allow assumptions; user remains execution owner |
 
 ### Recommended Always-Allow Prefixes (safe baseline)

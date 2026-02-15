@@ -27,6 +27,11 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
    - Chief Architect: docs/spec/ADR/review work only.
    - Developer Helper: planning docs only.
    - Business Coach: advisory output only.
+   - System Analyst: requirements and traceability artifacts only.
+   - Product Owner: backlog priority and acceptance decisions.
+   - Scrum Master: process/flow artifacts and impediment handling.
+   - QA/SET: test strategy/evidence and quality tooling in scope.
+   - DevOps/SRE: CI/CD and operational runbooks in scope.
 
    **Role-to-skill mapping (mandatory):**
    | Role | Required skill path |
@@ -36,6 +41,11 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
    | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
    | Developer Helper | `agents/developer_helper/SKILL.md` |
    | Business Coach | `agents/business_coach/SKILL.md` |
+   | System Analyst | `agents/system_analyst/SKILL.md` |
+   | Product Owner | `agents/product_owner/SKILL.md` |
+   | Scrum Master | `agents/scrum_master/SKILL.md` |
+   | QA/SET | `agents/qa_set/SKILL.md` |
+   | DevOps/SRE | `agents/devops_sre/SKILL.md` |
 
 3. **Safe baseline commands should run without new approvals after runtime policy setup.**
    - `git status`, `git diff`, `git diff --name-only`

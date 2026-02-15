@@ -20,6 +20,11 @@ codex_ca "Сделай architecture review по ARCH-ALIGN задаче."
 codex_ea "Реализуй задачу из spec/TASKS и приложи gate report."
 codex_dh "Декомпозируй TECH_SPEC в задачи."
 codex_bc "Дай рекомендации по приоритетам на неделю."
+codex_sa "Подготовь требования и acceptance criteria для Sprint Goal."
+codex_po "Приоритизируй backlog на ближайший спринт."
+codex_sm "Проведи sprint health check и зафиксируй блокеры."
+codex_qa "Подготовь quality verdict по release scope."
+codex_sre "Проверь CI/release readiness и runbook риски."
 ```
 
 ## Non-interactive role runs
@@ -27,6 +32,8 @@ codex_bc "Дай рекомендации по приоритетам на не�
 ```bash
 codex_tl_exec "Проверь gate reports, прими коммиты и подготовь push plan."
 codex_ea_exec "Выполни OPS-02 по задаче и верни 7-section report."
+codex_sa_exec "Уточни требования и обнови traceability для задачи."
+codex_qa_exec "Запусти quality gates и верни release verdict."
 ```
 
 ## Notes
@@ -34,3 +41,4 @@ codex_ea_exec "Выполни OPS-02 по задаче и верни 7-section r
 - Launcher injects role context using `AGENTS.md`, role `SKILL.md`, and `spec/templates/PREFLIGHT_STAMP_TEMPLATE.md`.
 - `Technical Lead` has guarded push authority per `AGENTS.md` section 7.
 - For implementation tasks, role `SKILL.md` discovery (R2) is mandatory.
+- Team standards reference: `spec/TEAM_STANDARDS.md`.

@@ -5,7 +5,7 @@ Use this at the start of each session before implementation tasks.
 ```text
 PREFLIGHT STAMP
 Runtime: <Codex|Claude|Other>
-Role: <Chief Architect|Technical Lead|Executive Assistant|Developer Helper|Business Coach>
+Role: <Chief Architect|Technical Lead|Executive Assistant|Developer Helper|Business Coach|System Analyst|Product Owner|Scrum Master|QA/SET|DevOps/SRE>
 Timestamp: <YYYY-MM-DD HH:MM TZ>
 
 1) Instruction injection: <PASS|FAIL>

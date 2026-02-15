@@ -81,6 +81,91 @@ Responsibilities:
 
 Profile: `agents/business_coach/SKILL.md`
 
+### System Analyst
+
+**Owner:** Requirements quality, acceptance criteria, traceability.
+
+Responsibilities:
+- Convert business goals into structured requirements and scoped stories.
+- Define acceptance criteria and non-functional constraints with Product Owner.
+- Maintain traceability between backlog items, specs, tasks, and delivered artifacts.
+- Validate backlog items against Definition of Ready before implementation starts.
+
+Does NOT:
+- Override Product Owner priorities.
+- Approve architecture/migration/time-model changes that require Chief Architect authority.
+- Implement product features directly unless explicitly reassigned.
+
+Profile: `agents/system_analyst/SKILL.md`
+
+### Product Owner (PO)
+
+**Owner:** Product value, backlog priority, increment acceptance.
+
+Responsibilities:
+- Own backlog ordering by business value and delivery risk.
+- Define sprint goals with Technical Lead and user.
+- Accept or reject sprint increments against business acceptance criteria.
+- Decide scope trade-offs (time/value/risk) when conflicts arise.
+
+Does NOT:
+- Bypass quality gates, security policy, or architecture approvals.
+- Override Chief Architect authority on ADR-required decisions.
+- Implement product features directly unless explicitly reassigned.
+
+Profile: `agents/product_owner/SKILL.md`
+
+### Scrum Master (SM)
+
+**Owner:** Scrum process health, flow discipline, impediment management.
+
+Responsibilities:
+- Facilitate Scrum ceremonies and enforce WIP discipline.
+- Track and report flow metrics (carry-over, cycle time, blocked time).
+- Remove process impediments or escalate to Technical Lead/user.
+- Drive retrospective actions and verify they are applied next sprint.
+
+Does NOT:
+- Accept/reject commits (Technical Lead authority).
+- Override technical architecture or security decisions.
+- Reprioritize backlog without Product Owner approval.
+
+Profile: `agents/scrum_master/SKILL.md`
+
+### QA/SET
+
+**Owner:** Test strategy, regression confidence, release quality evidence.
+
+Responsibilities:
+- Define and maintain test strategy for changed scopes.
+- Create and maintain regression checks and quality evidence artifacts.
+- Provide independent quality verdicts for release readiness.
+- Track defect escape patterns and feed improvements into retrospectives.
+
+Does NOT:
+- Bypass failing quality gates.
+- Change product behavior outside assigned implementation scope.
+- Approve ADR-required architecture changes.
+
+Profile: `agents/qa_set/SKILL.md`
+
+### DevOps/SRE
+
+**Owner:** CI/CD reliability, runbooks, operational readiness.
+
+Responsibilities:
+- Maintain delivery pipelines and release guardrails.
+- Define operational runbooks (degraded mode, incident response, rollback).
+- Ensure reliability controls for scheduled and automated workflows.
+- Report operational risks before release decisions.
+
+Does NOT:
+- Bypass security policy or secrets handling constraints.
+- Force-push protected/shared branches.
+- Reprioritize product backlog or business goals.
+
+Profile: `agents/devops_sre/SKILL.md`
+
 ---
 
 ## 2. Authority & Boundaries
@@ -93,9 +178,13 @@ Profile: `agents/business_coach/SKILL.md`
 | Scoring / planning weights          | EA, Technical Lead | Chief Architect (ADR required) |
 | Integration design (MCP, CalDAV)    | Chief Architect | Chief Architect     |
 | Time model / timezone changes       | Any agent       | Chief Architect (ADR required) |
-| Test infrastructure                 | EA, Technical Lead | Self             |
-| Documentation / templates           | Chief Architect, Developer Helper, Technical Lead | Self |
-| Task plans / agent assignment       | Technical Lead, Developer Helper | User (plan baseline) or Technical Lead (within approved baseline) |
+| Test infrastructure                 | EA, QA/SET, Technical Lead | Self |
+| Documentation / templates           | Chief Architect, Developer Helper, Technical Lead, System Analyst | Self |
+| Product backlog prioritization      | Product Owner, System Analyst | Product Owner |
+| Requirements and acceptance criteria | System Analyst, Product Owner, Developer Helper | Product Owner |
+| Sprint process and cadence policy   | Scrum Master, Technical Lead | Scrum Master |
+| CI/CD and release runbooks          | DevOps/SRE, Technical Lead | DevOps/SRE |
+| Task plans / agent assignment       | Technical Lead, Developer Helper, Scrum Master | User (plan baseline) or Technical Lead (within approved baseline) |
 | Commit acceptance (quality/scope gate) | Technical Lead | Technical Lead |
 | Push to remote repository           | Technical Lead  | Technical Lead (within user-approved plan and passed quality gates) |
 
@@ -226,6 +315,11 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
 | Developer Helper | `agents/developer_helper/SKILL.md` |
 | Business Coach | `agents/business_coach/SKILL.md` |
+| System Analyst | `agents/system_analyst/SKILL.md` |
+| Product Owner | `agents/product_owner/SKILL.md` |
+| Scrum Master | `agents/scrum_master/SKILL.md` |
+| QA/SET | `agents/qa_set/SKILL.md` |
+| DevOps/SRE | `agents/devops_sre/SKILL.md` |
 
 ### Verification gate (runtime-agnostic)
 Every task deliverable — architecture **and** development — must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. This gate is **mandatory for all runtimes** — see `spec/AGENT_RUNTIME.md` section 4.
@@ -255,11 +349,18 @@ To reduce avoidable runtime pauses, each runtime session must start with a permi
 | Chief Architect | Docs/spec/ADR/review artifacts; policy/runtime documentation updates; no product-feature implementation |
 | Developer Helper | Planning artifacts only (`spec/TASKS/` and related planning docs); no product code, migrations, or database writes |
 | Business Coach | Advisory output only; no source-of-truth mutations and no implementation commands |
+| System Analyst | Requirements and traceability artifacts (`spec/`, task acceptance criteria, backlog quality docs); no product code changes by default |
+| Product Owner | Backlog and value-priority artifacts; sprint goal and acceptance decisions; no code or migration actions by default |
+| Scrum Master | Process and flow artifacts (ceremony notes, retro actions, impediment logs); no product code changes by default |
+| QA/SET | Test strategy, test artifacts, and quality evidence; may update tests and quality tooling in scoped tasks |
+| DevOps/SRE | CI/CD scripts, runbooks, operational safeguards; no product feature logic changes unless explicitly scoped |
 
 Safe baseline commands (role-scoped) should run without new approval prompts once runtime policy is configured:
 - Repository inspection: `git status`, `git diff`, `git diff --name-only`
 - File/system inspection: `ls`, `cat`, `sed -n`, `rg`
 - EA delivery flow: `git add <paths>`, `git commit -m "<message>"`, `uv run pytest -q`, `uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80`, `uv run execas <local-only command>`
+- QA/SET flow: `git add <paths>`, `git commit -m "<message>"`, quality-gate test commands from section 4
+- DevOps/SRE flow: `git add <paths>`, `git commit -m "<message>"`, quality-gate test commands from section 4
 - Technical Lead integration flow: `git add <paths>`, `git commit -m "<message>"`, `git push` (guardrailed), quality-gate commands from section 4
 
 Always-manual approval commands/actions (never auto-allow):
