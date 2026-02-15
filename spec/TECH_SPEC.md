@@ -159,6 +159,23 @@ Output:
 - Action list: NOW + WAITING only.
 - Proposals: NEXT → NOW separate section.
 
+Sync (Post-MVP, R2–R3):
+- execas calendar sync
+  Incremental CalDAV sync → busy_blocks with source='yandex_caldav'.
+  Graceful error if credentials not configured.
+
+- execas mail sync
+  Incremental IMAP header ingest → emails table with source='yandex_imap'.
+  Graceful error if credentials not configured.
+
+Task-email linking (Post-MVP, R3):
+- execas task capture "title" --from-email <email_id> [--estimate N] [--priority P1|P2|P3]
+  Creates task with defaults from email metadata + auto-creates task_email_links row (link_type='origin').
+- execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]
+  Links existing task to email. Defaults to type='reference'. Duplicate (task_id, email_id) raises error.
+- execas task show <task_id>
+  Displays linked emails (subject + sender + received_at) when links exist.
+
 ## 11) Planning algorithm (deterministic; repo-aligned)
 Inputs:
 - settings: planning window, lunch, buffer, min_focus_block
@@ -194,7 +211,14 @@ Tables (minimum):
 - decisions(id, title, body, decided_date, created_at, updated_at) + decisions_fts (FTS5 + triggers)
 - weekly_reviews(id, week TEXT UNIQUE, created_at TEXT, body_md TEXT)
 
-Email tables may be added later (TASK 11+), keep secrets out of repo.
+Post-MVP tables (ADR-10, Phase 6 R1):
+- busy_blocks extended columns: source TEXT NOT NULL DEFAULT 'manual', external_id TEXT, external_etag TEXT, external_modified_at TEXT, is_deleted INTEGER NOT NULL DEFAULT 0
+- busy_blocks partial unique index: (calendar_id, source, external_id) WHERE external_id IS NOT NULL
+- sync_state(id, source TEXT, scope TEXT, cursor TEXT, cursor_kind TEXT, updated_at TEXT, UNIQUE(source, scope))
+- emails(id, source TEXT, external_id TEXT, mailbox_uid INTEGER, subject TEXT, sender TEXT, received_at TEXT, first_seen_at TEXT, last_seen_at TEXT, flags_json TEXT, UNIQUE(source, external_id))
+- task_email_links(id, task_id FK, email_id FK, link_type TEXT, created_at TEXT, UNIQUE(task_id, email_id))
+
+No email body stored (ADR-10). Credentials never in repo or DB.
 
 ## 13) Quality gates (repo-aligned)
 - Unit tests for:

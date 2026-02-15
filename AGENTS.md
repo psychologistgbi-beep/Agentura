@@ -171,7 +171,27 @@ No broken imports, no syntax errors. The test suite implicitly validates this.
 
 ---
 
-## 7. Release / MVP Checklist
+## 7. Agent Runtime & Verification
+
+Full specification: `spec/AGENT_RUNTIME.md`
+
+### Instruction sources (priority order)
+1. `AGENTS.md` (this file) — operating model, authority, security
+2. `agents/<role>/SKILL.md` — per-role profile and checklists
+3. `spec/TECH_SPEC.md`, `spec/ARCH_DECISIONS.md`, `spec/ACCEPTANCE.md` — requirements and ADRs
+4. `spec/TASKS/TASK_*.md` — scoped task instructions
+5. `spec/integrations/*.md` — integration plans
+6. User conversation — ad-hoc (must not contradict sources 1–3 without explicit override)
+
+### Role verification
+Every architecture-level deliverable must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. See `spec/AGENT_RUNTIME.md` section 3 for the full protocol.
+
+### Trust boundary
+Agents can read/write within their authority scope and run quality gates. Agents must get human approval for: pushing to remote, modifying AGENTS.md, amending ADRs, accessing external services with real credentials, or any destructive operation.
+
+---
+
+## 8. Release / MVP Checklist
 
 End-to-end scenario that must work before any release:
 

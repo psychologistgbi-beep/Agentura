@@ -46,6 +46,13 @@ Goal: ingest minimal email metadata safely, allow controlled creation of `NEXT` 
 - estimate default: `30` min (user can override)
 - create linkage row in `task_email_links` (ADR-10)
 
+Post-hoc linking of existing tasks:
+
+`execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]`
+
+- Links an existing task to an email record. Defaults to `link_type='reference'`.
+- Duplicate `(task_id, email_id)` raises a friendly error.
+
 Rules:
 
 - One email can link to many tasks.

@@ -67,7 +67,7 @@ Detection order: try `sync-collection` REPORT first (more efficient). If 403/501
 | `src/executive_cli/connectors/caldav.py` | New: `CalDavConnector` implementing `CalendarConnector` protocol (ADR-07) |
 | `src/executive_cli/sync_service.py` | New: orchestration — cursor read, connector call, upsert, cursor write |
 | `src/executive_cli/cli.py` | Add `calendar sync` command (stub → real) |
-| `src/executive_cli/busy_service.py` | Add `is_deleted=0` filter to `get_merged_busy_blocks()` |
+| `src/executive_cli/busy_service.py` | Add `is_deleted=0` pre-filter in `merge_busy_blocks()` or its call site in `cli.py` (`busy_list` command, ~line 180) |
 | `tests/test_calendar_sync.py` | New: mock connector, upsert dedup, soft delete, cursor advance |
 
 ### Acceptance criteria
@@ -111,8 +111,21 @@ Implement `execas mail sync` that fetches email headers from Yandex Mail via IMA
 - `flags_json` stores IMAP flags as JSON array (e.g. `["\\Seen","\\Flagged"]`).
 - No attachments, no recipients list, no CC/BCC.
 
-### Task-email linking
+### Task-email operations
 
+Two CLI commands cover different workflows:
+
+#### 1. Create task from email (one-step)
+```
+execas task capture --from-email <email_id> [--estimate N] [--priority P1|P2|P3] [--project X]
+```
+
+- Reads email metadata from `emails` table.
+- Creates task with: title from subject (fallback: "Email follow-up"), status=NEXT, priority=P2 (default), estimate=30 (default).
+- Auto-creates `task_email_links` row with `link_type='origin'`.
+- User can override estimate, priority, project via flags.
+
+#### 2. Link existing task to email (post-hoc)
 ```
 execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]
 ```
@@ -120,6 +133,8 @@ execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]
 - Creates row in `task_email_links`.
 - `link_type` defaults to `reference`.
 - Unique constraint `(task_id, email_id)` prevents duplicate links.
+
+#### Display
 - `execas task show <id>` displays linked emails (subject + sender + received_at).
 
 ### Files to touch
@@ -128,7 +143,7 @@ execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]
 |---|---|
 | `src/executive_cli/connectors/imap.py` | New: `ImapConnector` implementing `MailConnector` protocol (ADR-07) |
 | `src/executive_cli/sync_service.py` | Add mail sync orchestration (reuse cursor pattern from R2) |
-| `src/executive_cli/cli.py` | Add `mail sync` command + `task link-email` command |
+| `src/executive_cli/cli.py` | Add `mail sync` command + `task capture --from-email` flag + `task link-email` command |
 | `tests/test_mail_sync.py` | New: mock IMAP, dedup, UIDVALIDITY reset, flag update |
 | `tests/test_task_email_link.py` | New: link creation, duplicate rejection, task show with emails |
 
@@ -139,6 +154,7 @@ execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]
 - [ ] UIDVALIDITY change triggers full resync
 - [ ] `last_seen_at` and `flags_json` updated on re-sync
 - [ ] No email body stored anywhere (verify with `PRAGMA table_info`)
+- [ ] `task capture --from-email` creates task with defaults from email + origin link
 - [ ] `task link-email` creates link; duplicate raises friendly error
 - [ ] `task show` displays linked emails
 - [ ] Graceful error when IMAP unreachable

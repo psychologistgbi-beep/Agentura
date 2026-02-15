@@ -31,8 +31,8 @@ Goal: keep local `busy_blocks` aligned with external calendar to improve day pla
 
 - Store per-source watermark in a sync cursor table (`sync_state` in ADR-10):
   - `source = yandex_caldav`
-  - `cursor_kind = sync_token` if server supports WebDAV sync-token
-  - fallback `cursor_kind = modified_since` using max observed `LAST-MODIFIED`
+  - `cursor_kind = sync_token` if server supports WebDAV sync-collection (RFC 6578)
+  - fallback `cursor_kind = ctag` using collection `getctag` property
 - On each run:
   1. Load cursor.
   2. Query deltas since cursor.

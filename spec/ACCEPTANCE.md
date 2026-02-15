@@ -92,9 +92,22 @@ F3. `execas commitment add/list/import` commands exist. `execas commitment impor
 ## G. Primary Calendar & Busy Blocks
 G1. There is exactly one primary calendar in MVP.
 G2. Busy blocks can be created manually via CLI and listed per day.
-G3. Calendar sync exists as a command stub using MCP (CalDAV) with:
-- Clear error if MCP is not available.
-- Fallback workflow documented (manual busy add/list).
+
+### G3 — MVP (stub)
+G3-mvp. Calendar sync exists as a command stub with:
+- Clear error if MCP/credentials not configured.
+- Fallback workflow documented (manual `busy add`/`busy list`).
+
+### G3 — Post-MVP (R2: real sync)
+G3-post. `execas calendar sync` performs incremental CalDAV sync:
+- Upserts external events into `busy_blocks` with `source='yandex_caldav'`.
+- Dedup by `(calendar_id, source, external_id)` partial unique index.
+- ETag-unchanged events are skipped.
+- Removed events are soft-deleted (`is_deleted=1`), not physically deleted.
+- `busy list` excludes `is_deleted=1` rows.
+- Manual busy blocks (`source='manual'`) are never affected by sync.
+- Cursor advanced only on successful commit (idempotency).
+- Graceful error when CalDAV unreachable (fallback to `busy add`).
 
 ## H. Planning: `plan day` with 3 variants and time-block output
 H1. `execas plan day --date YYYY-MM-DD --variant minimal|realistic|aggressive`:
@@ -138,11 +151,30 @@ J2. Decisions:
 J3. FTS index updates when new people/decisions are added.
 
 ## K. Email Integration (Yandex)
-K1. MVP supports a read-only sync command stub using MCP (IMAP) with:
-- Clear error if MCP not configured.
-- Fallback workflow documented (manual capture from email).
 
-K2. Ability to create a task from an email (at minimum: store a reference to email record).
+### K1 — MVP (stub)
+K1-mvp. Mail sync exists as a command stub with:
+- Clear error if MCP/credentials not configured.
+- Fallback workflow documented (manual `task capture` from email).
+
+### K1 — Post-MVP (R3: real sync)
+K1-post. `execas mail sync` performs incremental IMAP header ingest:
+- Upserts email metadata into `emails` table with `source='yandex_imap'`.
+- Dedup by `(source, external_id)` where `external_id` = Message-ID header.
+- UIDVALIDITY change triggers full resync.
+- `last_seen_at` and `flags_json` updated on re-sync.
+- No email body stored (metadata only: subject, sender, received_at, flags).
+- Cursor advanced only on successful commit.
+- Graceful error when IMAP unreachable.
+
+### K2 — MVP (stub)
+K2-mvp. Ability to create a task from an email is documented as future workflow.
+
+### K2 — Post-MVP (R3: task-email linking)
+K2-post. Two commands for task-email association:
+- `execas task capture --from-email <email_id>`: creates a new task with defaults derived from email metadata (title from subject, status=NEXT, priority=P2, estimate=30) and auto-creates a `task_email_links` row with `link_type='origin'`.
+- `execas task link-email <task_id> <email_id> [--type origin|reference|follow_up]`: links an existing task to an email. Duplicate `(task_id, email_id)` raises friendly error.
+- `execas task show <id>` displays linked emails (subject + sender + received_at).
 
 ## L. Testability & Documentation
 L1. `spec/TEST_PLAN.md` is implementable; at least core tests can be executed locally.
