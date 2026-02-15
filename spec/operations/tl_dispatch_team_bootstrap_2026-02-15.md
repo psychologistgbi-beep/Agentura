@@ -78,16 +78,26 @@ Acceptance criteria:
 
 | Commit | Task | Role | Verdict | Evidence |
 |---|---|---|---|---|
-| pending | ARCH-TEAM-01 | Chief Architect | pending | waiting for commit + gate report |
-| pending | DEV-TEAM-01 | Executive Assistant | pending | waiting for commit + gate report |
+| `d64f7db` | ARCH-TEAM-01 | Chief Architect | accepted | files in scope only; gate report present in `spec/operations/gate_report_ARCH-TEAM-01_2026-02-15.md` |
+| `e742e17` | DEV-TEAM-01 | Executive Assistant | accepted | role mappings + new skill files implemented; quality gates passed (`pytest`, coverage, migration integrity) |
 
-## Acceptance review snapshot
+## Acceptance review snapshot (2026-02-15)
 
-Pending (will be updated after commit review).
+| Commit | Task | Role | Verdict | Evidence |
+|---|---|---|---|---|
+| `d64f7db` | ARCH-TEAM-01 | Chief Architect | accepted | `git show --name-only d64f7db` confirms architecture-doc scope; no code/schema changes |
+| `e742e17` | DEV-TEAM-01 | Executive Assistant | accepted | `git show --name-only e742e17` matches dispatch scope; all required gates passed in this session |
+
+Review notes:
+- No schema, migration, time-model, or integration-approach changes detected.
+- No secrets or credentials detected in diffed artifacts.
+- Role-to-skill mapping consistency verified across `AGENTS.md`, `spec/AGENT_RUNTIME.md`, `spec/AGENT_RUNTIME_ADAPTERS.md`, and `CLAUDE.md`.
 
 ## Push gate state
 
 - Target branch: `main` (remote `origin/main`)
-- Current state: `blocked`
-- Blockers:
-  - no accepted commits in this batch yet
+- Current state: `ready to push`
+- Preconditions met:
+  - all baseline commits have `accepted` verdict
+  - quality gates passed
+  - no authority-boundary violations found in reviewed commits

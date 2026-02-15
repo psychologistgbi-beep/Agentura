@@ -68,6 +68,6 @@ Before push:
 
 ## Status board
 
-- ARCH-TEAM-01: dispatched
-- DEV-TEAM-01: dispatched
-- TL-ACCEPT-01: in progress
+- ARCH-TEAM-01: completed (accepted commit `d64f7db`)
+- DEV-TEAM-01: completed (accepted commit `e742e17`)
+- TL-ACCEPT-01: completed (acceptance ledger updated)
