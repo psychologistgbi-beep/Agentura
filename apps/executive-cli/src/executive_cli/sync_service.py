@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone as _utc_tz
+import json
 
 from sqlmodel import Session, select
 
 from executive_cli.connectors.caldav import CalendarConnector
+from executive_cli.connectors.imap import MailConnector
 from executive_cli.db import PRIMARY_CALENDAR_SLUG
-from executive_cli.models import BusyBlock, Calendar, SyncState
+from executive_cli.models import BusyBlock, Calendar, Email, SyncState
 from executive_cli.timeutil import dt_to_db
 
 CALDAV_SOURCE = "yandex_caldav"
 CALDAV_SCOPE_PRIMARY = "primary"
+IMAP_SOURCE = "yandex_imap"
+IMAP_SCOPE_INBOX = "INBOX"
+IMAP_CURSOR_KIND_UID = "uidvalidity_uidnext"
 
 
 @dataclass(frozen=True)
@@ -22,6 +27,14 @@ class CalendarSyncResult:
     soft_deleted: int
     cursor: str | None
     cursor_kind: str | None
+
+
+@dataclass(frozen=True)
+class MailSyncResult:
+    inserted: int
+    updated: int
+    cursor: str
+    cursor_kind: str
 
 
 def sync_calendar_primary(
@@ -151,3 +164,119 @@ def sync_calendar_primary(
         cursor_kind=batch.cursor_kind,
     )
 
+
+def sync_mailbox(
+    session: Session,
+    *,
+    connector: MailConnector,
+    mailbox: str = IMAP_SCOPE_INBOX,
+) -> MailSyncResult:
+    scope = mailbox.strip() or IMAP_SCOPE_INBOX
+    state = session.exec(
+        select(SyncState)
+        .where(SyncState.source == IMAP_SOURCE)
+        .where(SyncState.scope == scope)
+    ).first()
+    cursor_uidvalidity, cursor_uidnext = _parse_uid_cursor(state.cursor if state is not None else None)
+
+    batch = connector.fetch_headers(
+        mailbox=scope,
+        cursor_uidvalidity=cursor_uidvalidity,
+        cursor_uidnext=cursor_uidnext,
+    )
+    new_cursor = f"{batch.uidvalidity}:{batch.uidnext}"
+    now_iso = datetime.now(_utc_tz.utc).isoformat()
+
+    existing_rows = session.exec(
+        select(Email)
+        .where(Email.source == IMAP_SOURCE)
+    ).all()
+    existing_by_external_id = {row.external_id: row for row in existing_rows}
+
+    # If a provider serves duplicate Message-ID entries in one batch, keep the latest UID.
+    deduped_messages = {
+        message.external_id: message
+        for message in sorted(batch.messages, key=lambda message: message.mailbox_uid)
+        if message.external_id
+    }
+
+    inserted = 0
+    updated = 0
+    try:
+        for message in deduped_messages.values():
+            if message.mailbox_uid <= 0:
+                raise ValueError("Email mailbox UID must be > 0.")
+
+            flags_json = json.dumps(list(message.flags))
+            existing = existing_by_external_id.get(message.external_id)
+            if existing is None:
+                row = Email(
+                    source=IMAP_SOURCE,
+                    external_id=message.external_id,
+                    mailbox_uid=message.mailbox_uid,
+                    subject=message.subject,
+                    sender=message.sender,
+                    received_at=message.received_at,
+                    first_seen_at=now_iso,
+                    last_seen_at=now_iso,
+                    flags_json=flags_json,
+                )
+                session.add(row)
+                existing_by_external_id[message.external_id] = row
+                inserted += 1
+                continue
+
+            existing.mailbox_uid = message.mailbox_uid
+            existing.subject = message.subject
+            existing.sender = message.sender
+            existing.received_at = message.received_at
+            existing.last_seen_at = now_iso
+            existing.flags_json = flags_json
+            session.add(existing)
+            updated += 1
+
+        if state is None:
+            state = SyncState(
+                source=IMAP_SOURCE,
+                scope=scope,
+                cursor=new_cursor,
+                cursor_kind=IMAP_CURSOR_KIND_UID,
+                updated_at=now_iso,
+            )
+            session.add(state)
+        else:
+            state.cursor = new_cursor
+            state.cursor_kind = IMAP_CURSOR_KIND_UID
+            state.updated_at = now_iso
+            session.add(state)
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return MailSyncResult(
+        inserted=inserted,
+        updated=updated,
+        cursor=new_cursor,
+        cursor_kind=IMAP_CURSOR_KIND_UID,
+    )
+
+
+def _parse_uid_cursor(cursor: str | None) -> tuple[int | None, int | None]:
+    if cursor is None:
+        return None, None
+
+    parts = cursor.split(":", maxsplit=1)
+    if len(parts) != 2:
+        return None, None
+
+    try:
+        uidvalidity = int(parts[0])
+        uidnext = int(parts[1])
+    except ValueError:
+        return None, None
+
+    if uidvalidity <= 0 or uidnext <= 0:
+        return None, None
+    return uidvalidity, uidnext

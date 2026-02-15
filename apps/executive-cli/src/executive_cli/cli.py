@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from executive_cli.busy_service import merge_busy_blocks
 from executive_cli.config import list_settings, upsert_setting
 from executive_cli.connectors.caldav import CalDavConnector, CalendarConnectorError
+from executive_cli.connectors.imap import ImapConnector, MailConnectorError
 from executive_cli.db import (
     DEFAULT_SETTINGS,
     PRIMARY_CALENDAR_SLUG,
@@ -23,16 +24,18 @@ from executive_cli.models import (
     Calendar,
     Commitment,
     Decision,
+    Email,
     Person,
     Project,
     Settings,
     Task,
+    TaskEmailLink,
     TaskPriority,
     TaskStatus,
 )
 from executive_cli.planner import VALID_VARIANTS, build_and_persist_day_plan
 from executive_cli.review import build_and_persist_weekly_review, validate_week
-from executive_cli.sync_service import sync_calendar_primary
+from executive_cli.sync_service import IMAP_SCOPE_INBOX, sync_calendar_primary, sync_mailbox
 from executive_cli.timeutil import dt_to_db, parse_local_dt
 
 app = typer.Typer(
@@ -43,6 +46,7 @@ app = typer.Typer(
 area_app = typer.Typer(help="Manage areas (reference data).")
 busy_app = typer.Typer(help="Manage busy blocks in the primary calendar.")
 calendar_app = typer.Typer(help="Sync external calendar providers.")
+mail_app = typer.Typer(help="Sync external mail providers.")
 commitment_app = typer.Typer(help="Manage year commitments.")
 config_app = typer.Typer(help="Manage assistant settings.")
 decision_app = typer.Typer(help="Manage decisions (searchable via FTS).")
@@ -54,6 +58,7 @@ review_app = typer.Typer(help="Weekly review reports.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(calendar_app, name="calendar")
+app.add_typer(mail_app, name="mail")
 app.add_typer(commitment_app, name="commitment")
 app.add_typer(config_app, name="config")
 app.add_typer(decision_app, name="decision")
@@ -199,6 +204,34 @@ def calendar_sync() -> None:
         f"inserted={result.inserted} updated={result.updated} "
         f"skipped={result.skipped} soft_deleted={result.soft_deleted} "
         f"cursor_kind={result.cursor_kind or '-'} cursor={result.cursor or '-'}"
+    )
+
+
+@mail_app.command("sync")
+def mail_sync(
+    mailbox: str = typer.Option(IMAP_SCOPE_INBOX, "--mailbox", help="IMAP mailbox scope (e.g. INBOX)."),
+) -> None:
+    """Incremental sync from IMAP into emails metadata with provenance tracking."""
+    scope = mailbox.strip()
+    if not scope:
+        raise typer.BadParameter("--mailbox must not be empty.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        try:
+            connector = ImapConnector.from_env()
+            result = sync_mailbox(session, connector=connector, mailbox=scope)
+        except MailConnectorError as exc:
+            print(f"[red]Mail sync failed:[/red] {exc}")
+            print(
+                "Fallback: create follow-up manually via "
+                'execas task capture "Email follow-up" --estimate 30 --priority P2 --status NEXT'
+            )
+            raise typer.Exit(code=1) from exc
+
+    print(
+        "[green]Mail sync complete.[/green] "
+        f"inserted={result.inserted} updated={result.updated} "
+        f"cursor_kind={result.cursor_kind} cursor={result.cursor}"
     )
 
 
@@ -712,23 +745,34 @@ def _resolve_commitment_id(session: Session, commitment_id: str | None) -> str |
 
 @task_app.command("capture")
 def task_capture(
-    title: str = typer.Argument(..., help="Task title."),
-    estimate: int = typer.Option(..., "--estimate", help="Estimate in minutes (>0)."),
-    priority: str = typer.Option(..., "--priority", help="Priority: P1, P2, or P3."),
+    title: str | None = typer.Argument(None, help="Task title."),
+    estimate: int | None = typer.Option(None, "--estimate", help="Estimate in minutes (>0)."),
+    priority: str | None = typer.Option(None, "--priority", help="Priority: P1, P2, or P3."),
     status: str = typer.Option("NEXT", "--status", help="Initial status (NOW, NEXT, SOMEDAY)."),
+    from_email: int | None = typer.Option(None, "--from-email", help="Create a task from email ID."),
     area_name: str | None = typer.Option(None, "--area", help="Area name."),
     project_name: str | None = typer.Option(None, "--project", help="Project name."),
     commitment_id: str | None = typer.Option(None, "--commitment", help="Commitment ID."),
     due: str | None = typer.Option(None, "--due", help="Due date YYYY-MM-DD."),
 ) -> None:
-    """Capture a new task with required estimate and priority."""
-    trimmed = title.strip()
-    if not trimmed:
-        raise typer.BadParameter("Task title must not be empty.")
+    """Capture a new task or create one from email metadata with automatic origin link."""
+    if from_email is not None and from_email <= 0:
+        raise typer.BadParameter("--from-email must be a positive integer.")
 
+    if from_email is None and title is None:
+        raise typer.BadParameter("Task title is required unless --from-email is provided.")
+
+    if estimate is None:
+        if from_email is None:
+            raise typer.BadParameter("--estimate is required unless --from-email is provided.")
+        estimate = 30
     if estimate <= 0:
         raise typer.BadParameter("--estimate must be > 0.")
 
+    if priority is None:
+        if from_email is None:
+            raise typer.BadParameter("--priority is required unless --from-email is provided.")
+        priority = TaskPriority.P2.value
     priority_upper = priority.strip().upper()
     try:
         parsed_priority = TaskPriority(priority_upper)
@@ -753,8 +797,19 @@ def task_capture(
         project_id = _resolve_project_id(session, project_name)
         cmt_id = _resolve_commitment_id(session, commitment_id)
 
+        resolved_title: str
+        if title is not None and title.strip():
+            resolved_title = title.strip()
+        elif from_email is not None:
+            email_row = session.get(Email, from_email)
+            if email_row is None:
+                raise typer.BadParameter(f"Email {from_email} not found.")
+            resolved_title = (email_row.subject or "").strip() or "Email follow-up"
+        else:
+            raise typer.BadParameter("Task title must not be empty.")
+
         task = Task(
-            title=trimmed,
+            title=resolved_title,
             status=parsed_status,
             priority=parsed_priority,
             estimate_min=estimate,
@@ -766,9 +821,66 @@ def task_capture(
             updated_at=now,
         )
         session.add(task)
-        session.commit()
+        session.flush()
+
+        if from_email is not None:
+            session.add(
+                TaskEmailLink(
+                    task_id=task.id,
+                    email_id=from_email,
+                    link_type="origin",
+                    created_at=now,
+                )
+            )
+
+        try:
+            session.commit()
+        except sa.exc.IntegrityError as exc:
+            session.rollback()
+            raise typer.BadParameter(f"Task {task.id} is already linked to email {from_email}.") from exc
         session.refresh(task)
         typer.echo(_format_task(task))
+
+
+@task_app.command("link-email")
+def task_link_email(
+    task_id: int = typer.Argument(..., help="Task ID."),
+    email_id: int = typer.Argument(..., help="Email ID."),
+    link_type: str = typer.Option(
+        "reference",
+        "--type",
+        help="Link type: origin | reference | follow_up.",
+    ),
+) -> None:
+    """Link an existing task to an email record."""
+    normalized_type = link_type.strip().lower()
+    allowed_types = {"origin", "reference", "follow_up"}
+    if normalized_type not in allowed_types:
+        raise typer.BadParameter("Invalid --type. Must be one of: origin, reference, follow_up.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise typer.BadParameter(f"Task {task_id} not found.")
+        email = session.get(Email, email_id)
+        if email is None:
+            raise typer.BadParameter(f"Email {email_id} not found.")
+
+        session.add(
+            TaskEmailLink(
+                task_id=task_id,
+                email_id=email_id,
+                link_type=normalized_type,
+                created_at=_now_iso(),
+            )
+        )
+        try:
+            session.commit()
+        except sa.exc.IntegrityError as exc:
+            session.rollback()
+            raise typer.BadParameter(f"Task {task_id} is already linked to email {email_id}.") from exc
+
+    typer.echo(f'task_id={task_id} email_id={email_id} type="{normalized_type}"')
 
 
 @task_app.command("list")
@@ -826,6 +938,39 @@ def task_list(
     tasks_sorted = sorted(tasks, key=sort_key)
     for t in tasks_sorted:
         typer.echo(_format_task(t))
+
+
+@task_app.command("show")
+def task_show(
+    task_id: int = typer.Argument(..., help="Task ID."),
+) -> None:
+    """Show one task and its linked email metadata."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise typer.BadParameter(f"Task {task_id} not found.")
+
+        links = session.exec(
+            select(TaskEmailLink, Email)
+            .join(Email, TaskEmailLink.email_id == Email.id)
+            .where(TaskEmailLink.task_id == task_id)
+            .order_by(TaskEmailLink.created_at, TaskEmailLink.id)
+        ).all()
+
+    typer.echo(_format_task(task))
+    if not links:
+        typer.echo("Linked emails: none")
+        return
+
+    typer.echo("Linked emails:")
+    for link, email in links:
+        sender = email.sender or "-"
+        received_at = email.received_at or "-"
+        subject = email.subject or "-"
+        typer.echo(
+            f'- email_id={email.id} type={link.link_type} sender="{sender}" '
+            f'received_at="{received_at}" subject="{subject}"'
+        )
 
 
 @task_app.command("move")
