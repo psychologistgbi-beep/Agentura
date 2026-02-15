@@ -77,6 +77,43 @@ An architecture task is complete when:
 - [ ] Manual fallback exists and is documented
 - [ ] No PII logged or stored without user consent
 
+### ADR-10 Implementation Review Checklist
+
+#### Schema integrity
+- [ ] `busy_blocks` has 5 new columns: `source`, `external_id`, `external_etag`, `external_modified_at`, `is_deleted`
+- [ ] `source` is NOT NULL with `server_default='manual'` (existing rows get value)
+- [ ] `is_deleted` is INTEGER NOT NULL with `server_default='0'`
+- [ ] Partial unique index on `(calendar_id, source, external_id) WHERE external_id IS NOT NULL`
+- [ ] `sync_state` table exists with UNIQUE(source, scope)
+- [ ] `emails` table exists with UNIQUE(source, external_id)
+- [ ] `task_email_links` table exists with UNIQUE(task_id, email_id) and FKs to tasks/emails
+- [ ] Migration has both `upgrade()` and `downgrade()`; downgrade+upgrade cycle passes
+
+#### Timezone / datetime (ADR-01)
+- [ ] `external_modified_at` stored as ISO-8601 TEXT with offset
+- [ ] `sync_state.updated_at` stored as ISO-8601 TEXT with offset
+- [ ] `emails.received_at`, `first_seen_at`, `last_seen_at` stored as ISO-8601 TEXT with offset
+- [ ] `task_email_links.created_at` stored as ISO-8601 TEXT with offset
+- [ ] All datetime writes go through `dt_to_db()`; all reads through `db_to_dt()`
+
+#### Privacy / PII (ADR-10 line 236)
+- [ ] No email body column in `emails` table
+- [ ] No attachment storage
+- [ ] No recipient list (To/CC/BCC) columns
+- [ ] Only metadata stored: subject, sender, received_at, flags
+
+#### Dedup / idempotency
+- [ ] Calendar upsert uses `(calendar_id, source, external_id)` as dedup key
+- [ ] Email upsert uses `(source, external_id)` as dedup key
+- [ ] ETag comparison prevents unnecessary updates
+- [ ] Cursor advanced only within successful transaction
+- [ ] Soft delete (`is_deleted=1`) instead of physical delete for calendar events
+
+#### Rollback
+- [ ] `alembic downgrade -1` reverses all changes
+- [ ] Manual busy blocks unaffected after rollback
+- [ ] Core CLI (`busy add`, `task capture`) works without sync tables
+
 ## Templates
 
 Architecture templates live in `spec/templates/`:
