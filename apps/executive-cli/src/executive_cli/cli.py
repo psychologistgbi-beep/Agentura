@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone as _utc_tz
+from datetime import datetime, timedelta, timezone as _utc_tz
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
@@ -35,6 +35,11 @@ from executive_cli.models import (
 )
 from executive_cli.planner import VALID_VARIANTS, build_and_persist_day_plan
 from executive_cli.review import build_and_persist_weekly_review, validate_week
+from executive_cli.scrum_metrics import (
+    append_metrics_history,
+    collect_code_quality_snapshot,
+    compute_scrum_metrics,
+)
 from executive_cli.sync_runner import run_hourly_sync
 from executive_cli.sync_service import IMAP_SCOPE_INBOX, sync_calendar_primary, sync_mailbox
 from executive_cli.timeutil import dt_to_db, parse_local_dt
@@ -1134,6 +1139,75 @@ def review_week(
         )
 
     typer.echo(body_md)
+
+
+@review_app.command("scrum-metrics")
+def review_scrum_metrics(
+    start: str | None = typer.Option(
+        None,
+        "--start",
+        help="Window start date YYYY-MM-DD (default: 13 days before end).",
+    ),
+    end: str | None = typer.Option(
+        None,
+        "--end",
+        help="Window end date YYYY-MM-DD (default: today in UTC).",
+    ),
+    run_quality: bool = typer.Option(
+        True,
+        "--run-quality/--no-run-quality",
+        help="Run quality snapshot (pytest + coverage gate).",
+    ),
+    save: bool = typer.Option(
+        True,
+        "--save/--no-save",
+        help="Append snapshot to local history file in .data.",
+    ),
+) -> None:
+    """Compute Scrum throughput/lead-time/carry-over metrics and optional code quality snapshot."""
+    end_date = _parse_date(end) if end else datetime.now(_utc_tz.utc).date()
+    start_date = _parse_date(start) if start else (end_date - timedelta(days=13))
+    if start_date > end_date:
+        raise typer.BadParameter("--start must be earlier than or equal to --end.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        metrics = compute_scrum_metrics(session, start_date=start_date, end_date=end_date)
+
+    quality = collect_code_quality_snapshot() if run_quality else None
+
+    typer.echo(f"Scrum metrics window: {start_date.isoformat()}..{end_date.isoformat()}")
+    typer.echo(f"throughput_done_count={metrics.throughput_done_count}")
+    typer.echo(f"throughput_done_estimate_min={metrics.throughput_done_estimate_min}")
+    typer.echo(f"backlog_at_start_count={metrics.backlog_at_start_count}")
+    typer.echo(f"carry_over_count={metrics.carry_over_count}")
+    typer.echo(f"carry_over_rate={metrics.carry_over_rate:.2%}")
+    if metrics.lead_time_avg_hours is None:
+        typer.echo("lead_time_avg_hours=-")
+    else:
+        typer.echo(f"lead_time_avg_hours={metrics.lead_time_avg_hours:.2f}")
+    if metrics.lead_time_p85_hours is None:
+        typer.echo("lead_time_p85_hours=-")
+    else:
+        typer.echo(f"lead_time_p85_hours={metrics.lead_time_p85_hours:.2f}")
+
+    if quality is None:
+        typer.echo("quality_snapshot=skipped")
+    else:
+        typer.echo(f"quality_tests_passed={str(quality.tests_passed).lower()}")
+        typer.echo(f"quality_coverage_gate_passed={str(quality.coverage_gate_passed).lower()}")
+        if quality.coverage_percent is None:
+            typer.echo("quality_coverage_percent=-")
+        else:
+            typer.echo(f"quality_coverage_percent={quality.coverage_percent:.2f}")
+
+    if save:
+        record: dict[str, object] = {
+            "generated_at": datetime.now(_utc_tz.utc).isoformat(),
+            "metrics": metrics.to_record(),
+            "quality": quality.to_record() if quality else None,
+        }
+        path = append_metrics_history(record)
+        typer.echo(f'history_saved="{path}"')
 
 
 def main() -> None:

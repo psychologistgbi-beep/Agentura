@@ -100,6 +100,7 @@ Mandatory metrics per sprint:
 - Lead time from ready to done.
 - Defect escape rate.
 - Quality gate pass rate.
+- Operational command: `execas review scrum-metrics` (see `spec/operations/scrum_metrics.md`).
 
 ## 11. Escalation Standards
 
