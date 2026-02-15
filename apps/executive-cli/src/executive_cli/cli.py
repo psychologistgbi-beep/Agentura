@@ -189,13 +189,13 @@ def calendar_sync() -> None:
         try:
             connector = CalDavConnector.from_env()
             result = sync_calendar_primary(session, connector=connector)
-        except CalendarConnectorError as exc:
-            print(f"[red]Calendar sync failed:[/red] {exc}")
+        except CalendarConnectorError:
+            print("[red]Calendar sync failed.[/red] Check CalDAV credentials and endpoint settings.")
             print(
                 "Fallback: use manual input via "
                 "execas busy add --date YYYY-MM-DD --start HH:MM --end HH:MM --title \"...\""
             )
-            raise typer.Exit(code=1) from exc
+            raise typer.Exit(code=1) from None
         except ValueError as exc:
             raise typer.BadParameter(str(exc)) from exc
 
@@ -220,13 +220,13 @@ def mail_sync(
         try:
             connector = ImapConnector.from_env()
             result = sync_mailbox(session, connector=connector, mailbox=scope)
-        except MailConnectorError as exc:
-            print(f"[red]Mail sync failed:[/red] {exc}")
+        except MailConnectorError:
+            print("[red]Mail sync failed.[/red] Check IMAP credentials and endpoint settings.")
             print(
                 "Fallback: create follow-up manually via "
                 'execas task capture "Email follow-up" --estimate 30 --priority P2 --status NEXT'
             )
-            raise typer.Exit(code=1) from exc
+            raise typer.Exit(code=1) from None
 
     print(
         "[green]Mail sync complete.[/green] "

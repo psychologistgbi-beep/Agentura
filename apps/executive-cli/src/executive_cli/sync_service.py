@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone as _utc_tz
 import json
+import logging
 
 from sqlmodel import Session, select
 
@@ -11,6 +12,8 @@ from executive_cli.connectors.imap import MailConnector
 from executive_cli.db import PRIMARY_CALENDAR_SLUG
 from executive_cli.models import BusyBlock, Calendar, Email, SyncState
 from executive_cli.timeutil import dt_to_db
+
+logger = logging.getLogger(__name__)
 
 CALDAV_SOURCE = "yandex_caldav"
 CALDAV_SCOPE_PRIMARY = "primary"
@@ -42,6 +45,11 @@ def sync_calendar_primary(
     *,
     connector: CalendarConnector,
 ) -> CalendarSyncResult:
+    logger.info(
+        "calendar_sync_started source=%s scope=%s",
+        CALDAV_SOURCE,
+        CALDAV_SCOPE_PRIMARY,
+    )
     calendar = session.exec(select(Calendar).where(Calendar.slug == PRIMARY_CALENDAR_SLUG)).first()
     if calendar is None:
         raise ValueError("Primary calendar is not initialized. Run 'execas init' first.")
@@ -54,12 +62,20 @@ def sync_calendar_primary(
     cursor = state.cursor if state is not None else None
     cursor_kind = state.cursor_kind if state is not None else None
 
-    batch = connector.fetch_events(
-        calendar_slug=calendar.slug,
-        cursor=cursor,
-        cursor_kind=cursor_kind,
-        timezone_name=calendar.timezone,
-    )
+    try:
+        batch = connector.fetch_events(
+            calendar_slug=calendar.slug,
+            cursor=cursor,
+            cursor_kind=cursor_kind,
+            timezone_name=calendar.timezone,
+        )
+    except Exception:
+        logger.error(
+            "calendar_sync_failed source=%s scope=%s stage=fetch",
+            CALDAV_SOURCE,
+            CALDAV_SCOPE_PRIMARY,
+        )
+        raise
 
     existing_rows = session.exec(
         select(BusyBlock)
@@ -153,7 +169,22 @@ def sync_calendar_primary(
         session.commit()
     except Exception:
         session.rollback()
+        logger.error(
+            "calendar_sync_failed source=%s scope=%s",
+            CALDAV_SOURCE,
+            CALDAV_SCOPE_PRIMARY,
+        )
         raise
+
+    logger.info(
+        "calendar_sync_completed source=%s scope=%s inserted=%s updated=%s skipped=%s soft_deleted=%s",
+        CALDAV_SOURCE,
+        CALDAV_SCOPE_PRIMARY,
+        inserted,
+        updated,
+        skipped,
+        soft_deleted,
+    )
 
     return CalendarSyncResult(
         inserted=inserted,
@@ -172,6 +203,7 @@ def sync_mailbox(
     mailbox: str = IMAP_SCOPE_INBOX,
 ) -> MailSyncResult:
     scope = mailbox.strip() or IMAP_SCOPE_INBOX
+    logger.info("mail_sync_started source=%s scope=%s", IMAP_SOURCE, scope)
     state = session.exec(
         select(SyncState)
         .where(SyncState.source == IMAP_SOURCE)
@@ -179,11 +211,21 @@ def sync_mailbox(
     ).first()
     cursor_uidvalidity, cursor_uidnext = _parse_uid_cursor(state.cursor if state is not None else None)
 
-    batch = connector.fetch_headers(
-        mailbox=scope,
-        cursor_uidvalidity=cursor_uidvalidity,
-        cursor_uidnext=cursor_uidnext,
-    )
+    try:
+        batch = connector.fetch_headers(
+            mailbox=scope,
+            cursor_uidvalidity=cursor_uidvalidity,
+            cursor_uidnext=cursor_uidnext,
+        )
+    except Exception:
+        logger.error("mail_sync_failed source=%s scope=%s stage=fetch", IMAP_SOURCE, scope)
+        raise
+    if cursor_uidvalidity is not None and cursor_uidvalidity != batch.uidvalidity:
+        logger.warning(
+            "mail_sync_uidvalidity_changed source=%s scope=%s",
+            IMAP_SOURCE,
+            scope,
+        )
     new_cursor = f"{batch.uidvalidity}:{batch.uidnext}"
     now_iso = datetime.now(_utc_tz.utc).isoformat()
 
@@ -253,7 +295,16 @@ def sync_mailbox(
         session.commit()
     except Exception:
         session.rollback()
+        logger.error("mail_sync_failed source=%s scope=%s", IMAP_SOURCE, scope)
         raise
+
+    logger.info(
+        "mail_sync_completed source=%s scope=%s inserted=%s updated=%s",
+        IMAP_SOURCE,
+        scope,
+        inserted,
+        updated,
+    )
 
     return MailSyncResult(
         inserted=inserted,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
@@ -10,6 +11,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+logger = logging.getLogger(__name__)
 
 
 class CalendarConnectorError(RuntimeError):
@@ -57,6 +60,11 @@ class CalDavConnector:
     _NS_CALDAV = "urn:ietf:params:xml:ns:caldav"
     _NS_CALSERVER = "http://calendarserver.org/ns/"
 
+    def __post_init__(self) -> None:
+        parsed = urlparse(self.base_url)
+        if parsed.scheme.lower() != "https":
+            raise CalendarConnectorError("CalDAV URL must use https://")
+
     @classmethod
     def from_env(cls) -> CalDavConnector:
         base_url = os.getenv("EXECAS_CALDAV_URL", "").strip()
@@ -67,10 +75,6 @@ class CalDavConnector:
             raise CalendarConnectorError(
                 "CalDAV connector is not configured. Set EXECAS_CALDAV_URL, EXECAS_CALDAV_USERNAME, EXECAS_CALDAV_PASSWORD."
             )
-
-        parsed = urlparse(base_url)
-        if parsed.scheme.lower() != "https":
-            raise CalendarConnectorError("CalDAV URL must use https://")
 
         return cls(base_url=base_url, username=username, password=password)
 
@@ -112,7 +116,10 @@ class CalDavConnector:
 </d:propfind>
 """
         payload = self._request_xml(method="PROPFIND", depth="0", body=body)
-        root = ET.fromstring(payload)
+        try:
+            root = ET.fromstring(payload)
+        except ET.ParseError:
+            raise CalendarConnectorError("CalDAV response is invalid.") from None
 
         ctag: str | None = None
         sync_token: str | None = None
@@ -144,7 +151,10 @@ class CalDavConnector:
 </d:propfind>
 """
         payload = self._request_xml(method="PROPFIND", depth="1", body=body)
-        root = ET.fromstring(payload)
+        try:
+            root = ET.fromstring(payload)
+        except ET.ParseError:
+            raise CalendarConnectorError("CalDAV response is invalid.") from None
 
         try:
             default_timezone = ZoneInfo(timezone_name)
@@ -206,12 +216,13 @@ class CalDavConnector:
                 return response.read()
         except HTTPError as exc:
             if exc.code in (401, 403):
-                raise CalendarConnectorError("CalDAV authentication failed.") from exc
-            raise CalendarConnectorError(f"CalDAV request failed with HTTP {exc.code}.") from exc
-        except URLError as exc:
-            raise CalendarConnectorError("CalDAV endpoint is unreachable.") from exc
-        except TimeoutError as exc:
-            raise CalendarConnectorError("CalDAV request timed out.") from exc
+                logger.warning("caldav_auth_failed status=%s", exc.code)
+                raise CalendarConnectorError("CalDAV authentication failed.") from None
+            raise CalendarConnectorError(f"CalDAV request failed with HTTP {exc.code}.") from None
+        except URLError:
+            raise CalendarConnectorError("CalDAV endpoint is unreachable.") from None
+        except TimeoutError:
+            raise CalendarConnectorError("CalDAV request timed out.") from None
 
 
 @dataclass(frozen=True)
@@ -370,4 +381,3 @@ def _decode_ical_text(raw: str) -> str:
     value = value.replace("\\,", ",").replace("\\;", ";")
     value = value.replace("\\\\", "\\")
     return value
-

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import imaplib
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from email.parser import BytesParser
 from email.policy import default
 from email.utils import parseaddr, parsedate_to_datetime
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class MailConnectorError(RuntimeError):
@@ -51,6 +54,12 @@ class ImapConnector:
     port: int = 993
     timeout_sec: float = 20.0
 
+    def __post_init__(self) -> None:
+        if not self.host or not self.username or not self.password:
+            raise MailConnectorError("IMAP connector is not configured.")
+        if self.port <= 0:
+            raise MailConnectorError("IMAP port is invalid.")
+
     @classmethod
     def from_env(cls) -> ImapConnector:
         host = os.getenv("EXECAS_IMAP_HOST", "").strip()
@@ -81,14 +90,15 @@ class ImapConnector:
     ) -> MailSyncBatch:
         try:
             client = imaplib.IMAP4_SSL(self.host, self.port, timeout=self.timeout_sec)
-        except (OSError, TimeoutError) as exc:
-            raise MailConnectorError("IMAP endpoint is unreachable.") from exc
+        except (OSError, TimeoutError):
+            raise MailConnectorError("IMAP endpoint is unreachable.") from None
 
         try:
             try:
                 client.login(self.username, self.password)
-            except imaplib.IMAP4.error as exc:
-                raise MailConnectorError("IMAP authentication failed.") from exc
+            except imaplib.IMAP4.error:
+                logger.warning("imap_auth_failed mailbox=%s", mailbox)
+                raise MailConnectorError("IMAP authentication failed.") from None
 
             status, _ = client.select(mailbox, readonly=True)
             if status != "OK":
@@ -107,10 +117,10 @@ class ImapConnector:
             )
         except MailConnectorError:
             raise
-        except imaplib.IMAP4.error as exc:
-            raise MailConnectorError("IMAP request failed.") from exc
-        except (OSError, TimeoutError) as exc:
-            raise MailConnectorError("IMAP endpoint is unreachable.") from exc
+        except imaplib.IMAP4.error:
+            raise MailConnectorError("IMAP request failed.") from None
+        except (OSError, TimeoutError):
+            raise MailConnectorError("IMAP endpoint is unreachable.") from None
         finally:
             try:
                 client.logout()
