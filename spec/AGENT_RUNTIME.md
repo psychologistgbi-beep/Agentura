@@ -160,10 +160,23 @@ Before an agent begins any implementation task (code, migrations, CLI commands),
 3. **Task discovery** — the agent can find task files in `spec/TASKS/`.
 4. **Quality gate execution** — the agent can run `uv run pytest` and report results.
 5. **Gate report format** — the agent can produce the 7-section verification gate report.
+6. **Permissions readiness** — safe baseline commands for the assigned role execute without new approval prompts.
+
+### Permissions readiness (mandatory block)
+Preflight is incomplete until permissions readiness is explicitly evaluated.
+
+**Pass criteria:**
+- Safe baseline commands from `AGENTS.md` section 7 run in the current runtime session without new approval prompts.
+- Commands in the always-manual list remain approval-gated and are not auto-allowed.
+
+**Fail criteria (status = not ready to execute):**
+- Any safe baseline command requires a new approval to run.
+- Runtime policy only works via ad-hoc one-off escalations for baseline-safe commands.
+- Runtime configuration would auto-allow a command from the always-manual list.
 
 ### When preflight is required
-- **Implementation tasks** (code, migrations, tests): all 5 checks required.
-- **Architecture tasks** (docs, ADRs, process): checks 1–3 and 5 required; check 4 (quality gate dry-run) may be skipped if no code is involved.
+- **Implementation tasks** (code, migrations, tests): all 6 checks required.
+- **Architecture tasks** (docs, ADRs, process): checks 1–3, 5, and 6 required; check 4 (quality gate dry-run) may be skipped if no code is involved.
 - **Skipping preflight** makes the deliverable "not ready to execute" — the human reviewer should request preflight before accepting.
 
 ### Preflight is per-session
@@ -188,18 +201,17 @@ Preflight runs once at the start of a task session. If the agent continues in th
 
 ### What agents CAN do without human approval
 - Read any file in the repository
-- Run tests (`uv run pytest`)
+- Execute safe baseline commands from `AGENTS.md` section 7
 - Run linters and type checkers
 - Create/modify files within their authority scope (AGENTS.md section 2)
-- Create git commits (with descriptive messages)
+- Create git commits (with descriptive messages and role scope compliance)
 
 ### What agents MUST get human approval for
 - Push to remote repository
+- Destructive operations (`rm -rf`, `git reset --hard`, branch delete, file delete)
+- Access external services (CalDAV, IMAP, APIs) with real credentials
 - Modify AGENTS.md (operating model changes)
 - Amend existing ADRs (architectural decisions)
-- Delete files or branches
-- Access external services (CalDAV, IMAP) with real credentials
-- Any destructive or hard-to-reverse operation
 
 ### What agents MUST NOT do
 - Store credentials in code, config, or database

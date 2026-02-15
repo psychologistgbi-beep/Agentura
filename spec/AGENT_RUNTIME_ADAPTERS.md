@@ -26,6 +26,47 @@ This document describes how each supported LLM runtime discovers and loads the A
 
 ---
 
+## Runtime Baseline Command Matrix
+
+This matrix defines permission baseline expectations per runtime. Commands listed as baseline-safe are expected to run without new approvals once the runtime policy is configured.
+
+| Runtime | Baseline-safe command groups | Notes |
+|--------|------------------------------|-------|
+| Codex | `git status`, `git diff`, `git diff --name-only`, `rg`, `ls`, `cat`, `sed -n`, `git add <paths>`, `git commit -m`, `uv run pytest -q`, `uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80`, `uv run execas <local-only command>`, `rm -f .data/execas.sqlite`, `rm -f apps/executive-cli/.data/execas.sqlite` | Role-scoped by `AGENTS.md` section 7 (`EA` gets implementation/migration commands; other roles stay in their scope). `rm -f ...execas.sqlite` is migration-integrity-only carve-out. |
+| Claude | Same baseline-safe set as Codex via Bash tool | Role-scoped by `AGENTS.md` section 7 and `CLAUDE.md` runtime rules; same migration-integrity-only carve-out for `execas.sqlite`. |
+| Generic fallback | Read-only inspection commands only unless user runs commands manually | No auto-allow assumptions; user remains execution owner |
+
+### Recommended Always-Allow Prefixes (safe baseline)
+
+Apply these only for commands that are baseline-safe and role-scoped:
+
+| Runtime | Recommended prefix set |
+|--------|------------------------|
+| Codex | `["git", "add"]`, `["git", "commit"]`, `["uv", "run", "pytest"]` |
+| Claude | Equivalent allowlist in local shell policy for `git add`, `git commit`, `uv run pytest` |
+| Generic fallback | Not applicable (manual execution model) |
+
+For `uv run execas`, prefer narrow per-command allowlists for local-only subcommands and do not globally auto-allow connector/sync commands.
+
+### Escalation Boundaries (never auto-allow)
+
+These commands/actions must always stay manual-approval only, regardless of runtime:
+- `git push`
+- Destructive operations (`rm -rf`, `git reset --hard`, branch delete, file delete)
+- Accessing external services with real credentials
+
+### Gated Destructive Exceptions (quality gates)
+
+The following delete commands are carve-outs and may be allowed only for migration integrity checks:
+- `rm -f .data/execas.sqlite`
+- `rm -f apps/executive-cli/.data/execas.sqlite`
+
+Constraints:
+- Allowed only when used for the migration-integrity flow with `uv run execas init`.
+- Must not be generalized into broad delete prefixes (`rm`, `rm -f`, `rm -rf`).
+
+---
+
 ## Adapter Details
 
 ### Codex (OpenAI)
@@ -61,6 +102,7 @@ This document describes how each supported LLM runtime discovers and loads the A
 | Task discovery | Agent lists files matching `spec/TASKS/TASK_*.md` | Lists at least TASK_R1 and TASK_R2_R4 |
 | Quality gate dry-run | Agent runs `cd apps/executive-cli && uv run pytest -q` | Exit code 0, tests pass |
 | Gate report format | Agent produces a stub 7-section report with placeholder content | All 7 section headers present |
+| Permissions readiness | Agent runs baseline-safe commands for assigned role without new approvals | All baseline-safe checks pass; always-manual commands remain approval-gated |
 
 ### Claude (Anthropic — Claude Code)
 
@@ -94,6 +136,7 @@ This document describes how each supported LLM runtime discovers and loads the A
 | Task discovery | `Glob("spec/TASKS/TASK_*.md")` | Lists at least TASK_R1 and TASK_R2_R4 |
 | Quality gate dry-run | `Bash("cd apps/executive-cli && uv run pytest -q")` | Exit code 0, all tests pass |
 | Gate report format | Produce a stub 7-section report with placeholder content | All 7 section headers present |
+| Permissions readiness | Run baseline-safe commands for assigned role in Bash tool | No new approvals for baseline-safe commands; always-manual commands still gated |
 
 ### Generic Fallback (other LLMs)
 
@@ -160,7 +203,8 @@ A runtime adapter is considered **ready** (pass) when all of the following hold:
 | R5 | Agent can produce a 7-section gate report | Preflight check: gate report format |
 | R6 | Agent respects authority boundaries from AGENTS.md section 2 | Verified in gate report: role confirmation section |
 | R7 | Agent does not store credentials in repo or database | Verified by diff review |
+| R8 | Agent passes permissions readiness for baseline-safe commands | Preflight check: permissions readiness |
 
 **Fail = not ready to execute.** If any criterion fails, the runtime adapter is not considered operational for implementation tasks. The agent must resolve the failure before proceeding, or the user must switch to a runtime that passes.
 
-**Preflight is mandatory.** Every implementation task session must begin with the runtime's preflight smoke-check (defined per-adapter above). Architecture-only tasks (docs, ADRs) may skip quality gate dry-run (R4) but must pass all other criteria.
+**Preflight is mandatory.** Every implementation task session must begin with the runtime's preflight smoke-check (defined per-adapter above). Architecture-only tasks (docs, ADRs) may skip quality gate dry-run (R4) but must pass all other criteria, including permissions readiness (R8).

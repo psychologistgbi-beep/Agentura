@@ -65,12 +65,12 @@ Responsibilities:
 |-------------------------------------|-----------------|---------------------|
 | Schema / migrations                 | Any agent       | Chief Architect     |
 | ADR (new or amend)                  | Any agent       | Chief Architect     |
-| CLI commands (new or modify)        | EA, Dev Helper  | Chief Architect (schema-touching) or self (pure feature) |
+| CLI commands (new or modify)        | EA              | Chief Architect (schema-touching) or self (pure feature) |
 | Scoring / planning weights          | EA              | Chief Architect (ADR required) |
 | Integration design (MCP, CalDAV)    | Chief Architect | Chief Architect     |
 | Time model / timezone changes       | Any agent       | Chief Architect (ADR required) |
-| Test infrastructure                 | Any agent       | Self                |
-| Documentation / templates           | Any agent       | Self                |
+| Test infrastructure                 | EA              | Self                |
+| Documentation / templates           | Chief Architect, Developer Helper | Self |
 
 ---
 
@@ -196,11 +196,36 @@ Every task deliverable — architecture **and** development — must include a s
 ### Runtime preflight (mandatory before implementation)
 Before starting any implementation task, the agent must pass the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md`. A task session without successful preflight is considered "not ready to execute". See `spec/AGENT_RUNTIME.md` section 5.
 
+### Agent Permissions Baseline
+To reduce avoidable runtime pauses, each runtime session must start with a permissions baseline aligned to role scope.
+
+| Role | Runtime command scope |
+|------|-----------------------|
+| Executive Assistant (EA) | Product implementation in `apps/executive-cli`, tests/coverage/migration commands, and non-destructive git staging/commit (`git add`, `git commit`) |
+| Chief Architect | Docs/spec/ADR/review artifacts; policy/runtime documentation updates; no product-feature implementation |
+| Developer Helper | Planning artifacts only (`spec/TASKS/` and related planning docs); no product code, migrations, or database writes |
+| Business Coach | Advisory output only; no source-of-truth mutations and no implementation commands |
+
+Safe baseline commands (role-scoped) should run without new approval prompts once runtime policy is configured:
+- Repository inspection: `git status`, `git diff`, `git diff --name-only`
+- File/system inspection: `ls`, `cat`, `sed -n`, `rg`
+- EA delivery flow: `git add <paths>`, `git commit -m "<message>"`, `uv run pytest -q`, `uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80`, `uv run execas <local-only command>`
+
+Always-manual approval commands/actions (never auto-allow):
+- `git push`
+- Destructive operations (`rm -rf`, `git reset --hard`, branch delete, file delete)
+- Accessing external services with real credentials
+
+Gated destructive exception (quality gate only):
+- `rm -f .data/execas.sqlite`
+- `rm -f apps/executive-cli/.data/execas.sqlite`
+- This exception is valid only in the migration integrity check context (paired with `uv run execas init`), not as a general delete permission.
+
 ### Runtime-neutral acceptance
 Task acceptance is judged by the core policy layer (quality gates, ADR compliance, authority boundaries), never by which LLM produced the deliverable.
 
 ### Trust boundary
-Agents can read/write within their authority scope and run quality gates. Agents must get human approval for: pushing to remote, modifying AGENTS.md, amending ADRs, accessing external services with real credentials, or any destructive operation.
+Agents can read/write within their authority scope and run quality gates. Agents must get human approval for: always-manual actions from the baseline list, modifying AGENTS.md, and amending ADRs.
 
 ---
 

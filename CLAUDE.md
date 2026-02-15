@@ -21,24 +21,41 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
 
 1. **Authority boundaries are identical regardless of LLM.** The same AGENTS.md section 2 authority table applies to Claude, Codex, and any other runtime. Do not exceed your assigned role's scope.
 
-2. **Quality gates are mandatory.** Every commit must pass:
+2. **Role-based command scope is mandatory.**
+   - EA: implementation in `apps/executive-cli`, tests/migrations, `git add/commit`.
+   - Chief Architect: docs/spec/ADR/review work only.
+   - Developer Helper: planning docs only.
+   - Business Coach: advisory output only.
+
+3. **Safe baseline commands should run without new approvals after runtime policy setup.**
+   - `git status`, `git diff`, `git diff --name-only`
+   - `ls`, `cat`, `sed -n`, `rg`
+   - EA flow: `git add <paths>`, `git commit -m`, `uv run pytest ...`, `uv run execas <local-only command>`
+
+4. **Always-manual approval actions (never auto-allow).**
+   - `git push`
+   - Destructive operations (`rm -rf`, `git reset --hard`, branch delete, file delete)
+   - External services with real credentials
+   - Exception for migration integrity quality gate only: `rm -f .data/execas.sqlite` or `rm -f apps/executive-cli/.data/execas.sqlite`, when paired with `uv run execas init`
+
+5. **Quality gates are mandatory.** Every commit must pass:
    ```bash
    cd apps/executive-cli
    uv run pytest -q
    uv run pytest --cov=executive_cli --cov-fail-under=80
    ```
 
-3. **Verification gate for architecture and development tasks.** Every task deliverable (architecture or implementation) must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. See `spec/AGENT_RUNTIME.md` section 4.
+6. **Verification gate for architecture and development tasks.** Every task deliverable (architecture or implementation) must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. See `spec/AGENT_RUNTIME.md` section 4.
 
-4. **Preflight before implementation.** Before starting any implementation task, run the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md` (Claude section). A task cannot proceed until preflight passes.
+7. **Preflight before implementation includes permissions readiness.** Run the runtime preflight smoke-check from `spec/AGENT_RUNTIME_ADAPTERS.md` (Claude section), including a permissions readiness check. If baseline-safe commands require new approvals, status is `not ready to execute`.
 
-5. **ADR before schema change.** No migration without an approved ADR in `spec/ARCH_DECISIONS.md`.
+8. **ADR before schema change.** No migration without an approved ADR in `spec/ARCH_DECISIONS.md`.
 
-6. **Secrets never in repo.** Credentials only in env vars. `.gitignore` covers `.env`, `*.pem`, `*.key`, `credentials.*`.
+9. **Secrets never in repo.** Credentials only in env vars. `.gitignore` covers `.env`, `*.pem`, `*.key`, `credentials.*`.
 
-7. **Single writer for SQLite.** Only the EA role writes to the database (ADR-09). Other roles produce proposals.
+10. **Single writer for SQLite.** Only the EA role writes to the database (ADR-09). Other roles produce proposals.
 
-8. **Atomic commits.** One commit = one logical change. Commit message describes what and why.
+11. **Atomic commits.** One commit = one logical change. Commit message describes what and why.
 
 ## Key paths
 
