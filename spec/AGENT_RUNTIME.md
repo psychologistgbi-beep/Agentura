@@ -22,9 +22,9 @@ Agent operations in Agentura are split into two distinct layers:
 │            Runtime Adapter Layer                     │
 │  (per-LLM: skill discovery, instruction injection)  │
 │                                                      │
-│  ┌─────────┐  ┌─────────┐  ┌──────────────────┐    │
-│  │  Codex  │  │ Claude  │  │ Generic fallback │    │
-│  └─────────┘  └─────────┘  └──────────────────┘    │
+│  ┌─────────┐  ┌─────────┐  ┌─────────────────┐     │
+│  │  Codex  │  │ Claude  │  │ Generic runtime │     │
+│  └─────────┘  └─────────┘  └─────────────────┘     │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -77,8 +77,12 @@ Agent skill definitions are stored in the repository under a predictable path st
 ├── agents/
 │   ├── chief_architect/
 │   │   └── SKILL.md                   # Chief Architect profile + checklists
-│   └── developer_helper/
-│       └── SKILL.md                   # Developer Helper profile (future)
+│   ├── executive_assistant/
+│   │   └── SKILL.md                   # Executive Assistant profile
+│   ├── developer_helper/
+│   │   └── SKILL.md                   # Developer Helper profile
+│   └── business_coach/
+│       └── SKILL.md                   # Business Coach profile
 └── spec/
     ├── AGENT_RUNTIME.md               # This file (core policy + layer model)
     ├── AGENT_RUNTIME_ADAPTERS.md      # Per-runtime adapter details
@@ -97,13 +101,30 @@ Agent skill definitions are stored in the repository under a predictable path st
 
 These paths are part of the core policy layer. Each runtime adapter describes how it discovers and loads these files (see `spec/AGENT_RUNTIME_ADAPTERS.md`).
 
+### Role-to-skill mapping (mandatory)
+
+| Role | Required skill path |
+|------|---------------------|
+| Chief Architect | `agents/chief_architect/SKILL.md` |
+| Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
+| Developer Helper | `agents/developer_helper/SKILL.md` |
+| Business Coach | `agents/business_coach/SKILL.md` |
+
+### Strict skill discovery policy
+
+- R2 (skill discovery) is mandatory for all task sessions.
+- For implementation tasks, the runtime must resolve the assigned role to the exact file path in the mapping table above and read it successfully.
+- If the mapped `agents/<role>/SKILL.md` file is missing or unreadable, preflight fails with status `not ready to execute`.
+- For implementation tasks, fallback behavior of "continue from AGENTS.md only" is prohibited.
+
 ### Adding a new agent role
 
 1. Create `agents/<role>/SKILL.md` following the structure in `agents/chief_architect/SKILL.md`.
 2. Add the role to `AGENTS.md` section 1 (Agent Roles).
 3. Add authority boundaries to `AGENTS.md` section 2 (Authority & Boundaries table).
 4. No code changes required — agent runtime is convention-based, not framework-based.
-5. Verify the new role is discoverable by at least one runtime adapter.
+5. Verify the new role path is added to the role-to-skill mapping table in this file and in `spec/AGENT_RUNTIME_ADAPTERS.md`.
+6. Verify preflight R2 passes in each supported runtime adapter.
 
 ---
 
@@ -156,7 +177,7 @@ Before an agent begins any implementation task (code, migrations, CLI commands),
 
 ### What preflight verifies
 1. **Instruction injection** — the agent has loaded AGENTS.md (and CLAUDE.md for Claude runtime).
-2. **Skill discovery** — the agent can read the assigned role's SKILL.md.
+2. **Skill discovery (R2)** — the agent can read the assigned role's mapped `agents/<role>/SKILL.md`.
 3. **Task discovery** — the agent can find task files in `spec/TASKS/`.
 4. **Quality gate execution** — the agent can run `uv run pytest` and report results.
 5. **Gate report format** — the agent can produce the 7-section verification gate report.
@@ -173,6 +194,8 @@ Preflight is incomplete until permissions readiness is explicitly evaluated.
 - Any safe baseline command requires a new approval to run.
 - Runtime policy only works via ad-hoc one-off escalations for baseline-safe commands.
 - Runtime configuration would auto-allow a command from the always-manual list.
+- Assigned role skill file is missing or unreadable at the mapped path.
+- For implementation tasks, runtime attempts to continue using AGENTS.md only without loading the assigned role SKILL file.
 
 ### When preflight is required
 - **Implementation tasks** (code, migrations, tests): all 6 checks required.

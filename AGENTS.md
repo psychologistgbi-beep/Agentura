@@ -23,6 +23,8 @@ Does NOT:
 - Execute long refactors without an approved ADR/RFC.
 - Store or request credentials in plaintext.
 
+Profile: `agents/chief_architect/SKILL.md`
+
 ### Executive Assistant (EA)
 
 **Owner:** Feature delivery, SQLite writes, CLI commands.
@@ -36,6 +38,8 @@ Responsibilities:
 Does NOT:
 - Change schema or migrations without Chief Architect review.
 - Bypass quality gates.
+
+Profile: `agents/executive_assistant/SKILL.md`
 
 ### Developer Helper
 
@@ -56,6 +60,8 @@ Responsibilities:
 - Help user clarify goals, commitments, and priorities.
 - Produce recommendations (not commands).
 - Cannot modify SQLite or any source of truth directly (ADR-09).
+
+Profile: `agents/business_coach/SKILL.md`
 
 ---
 
@@ -190,11 +196,21 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 5. `spec/integrations/*.md` — integration plans
 6. User conversation — ad-hoc (must not contradict sources 1–3 without explicit override)
 
+### Role-to-skill mapping (mandatory)
+| Role | Required skill path |
+|------|---------------------|
+| Chief Architect | `agents/chief_architect/SKILL.md` |
+| Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
+| Developer Helper | `agents/developer_helper/SKILL.md` |
+| Business Coach | `agents/business_coach/SKILL.md` |
+
 ### Verification gate (runtime-agnostic)
 Every task deliverable — architecture **and** development — must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. This gate is **mandatory for all runtimes** — see `spec/AGENT_RUNTIME.md` section 4.
 
 ### Runtime preflight (mandatory before implementation)
 Before starting any implementation task, the agent must pass the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md`. A task session without successful preflight is considered "not ready to execute". See `spec/AGENT_RUNTIME.md` section 5.
+R2 (skill discovery) is mandatory: the assigned role must load the mapped `agents/<role>/SKILL.md` path above.
+For implementation tasks, missing/unreadable role SKILL file is a hard fail (`not ready to execute`), and fallback behavior of "continue using AGENTS.md only" is prohibited.
 
 ### Agent Permissions Baseline
 To reduce avoidable runtime pauses, each runtime session must start with a permissions baseline aligned to role scope.

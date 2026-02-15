@@ -27,6 +27,14 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
    - Developer Helper: planning docs only.
    - Business Coach: advisory output only.
 
+   **Role-to-skill mapping (mandatory):**
+   | Role | Required skill path |
+   |------|---------------------|
+   | Chief Architect | `agents/chief_architect/SKILL.md` |
+   | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
+   | Developer Helper | `agents/developer_helper/SKILL.md` |
+   | Business Coach | `agents/business_coach/SKILL.md` |
+
 3. **Safe baseline commands should run without new approvals after runtime policy setup.**
    - `git status`, `git diff`, `git diff --name-only`
    - `ls`, `cat`, `sed -n`, `rg`
@@ -47,7 +55,7 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
 
 6. **Verification gate for architecture and development tasks.** Every task deliverable (architecture or implementation) must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. See `spec/AGENT_RUNTIME.md` section 4.
 
-7. **Preflight before implementation includes permissions readiness.** Run the runtime preflight smoke-check from `spec/AGENT_RUNTIME_ADAPTERS.md` (Claude section), including a permissions readiness check. If baseline-safe commands require new approvals, status is `not ready to execute`.
+7. **Preflight before implementation includes strict skill discovery and permissions readiness.** Run the runtime preflight smoke-check from `spec/AGENT_RUNTIME_ADAPTERS.md` (Claude section), including R2 skill discovery and a permissions readiness check. If baseline-safe commands require new approvals, or if the assigned role SKILL file is missing/unreadable, status is `not ready to execute`. For implementation tasks, AGENTS.md-only fallback is prohibited.
 
 8. **ADR before schema change.** No migration without an approved ADR in `spec/ARCH_DECISIONS.md`.
 
