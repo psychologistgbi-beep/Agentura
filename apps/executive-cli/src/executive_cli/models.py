@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, Column, Enum as SQLEnum, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, Enum as SQLEnum, Index, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -45,6 +45,14 @@ class BusyBlock(SQLModel, table=True):
             "julianday(end_dt) > julianday(start_dt)",
             name="ck_busy_blocks_end_after_start",
         ),
+        Index(
+            "uq_busy_blocks_source_external_id",
+            "calendar_id",
+            "source",
+            "external_id",
+            unique=True,
+            sqlite_where=text("external_id IS NOT NULL"),
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -52,6 +60,11 @@ class BusyBlock(SQLModel, table=True):
     start_dt: str
     end_dt: str
     title: str | None = None
+    source: str = Field(default="manual")
+    external_id: str | None = None
+    external_etag: str | None = None
+    external_modified_at: str | None = None
+    is_deleted: int = Field(default=0)
 
 
 class Area(SQLModel, table=True):
@@ -170,3 +183,48 @@ class WeeklyReview(SQLModel, table=True):
     week: str = Field(unique=True)
     created_at: str
     body_md: str
+
+
+class SyncState(SQLModel, table=True):
+    __tablename__ = "sync_state"
+    __table_args__ = (
+        UniqueConstraint("source", "scope", name="uq_sync_state_source_scope"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str
+    scope: str
+    cursor: str | None = None
+    cursor_kind: str | None = None
+    updated_at: str
+
+
+class Email(SQLModel, table=True):
+    __tablename__ = "emails"
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_emails_source_external_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str
+    external_id: str
+    mailbox_uid: int | None = None
+    subject: str | None = None
+    sender: str | None = None
+    received_at: str | None = None
+    first_seen_at: str
+    last_seen_at: str
+    flags_json: str | None = None
+
+
+class TaskEmailLink(SQLModel, table=True):
+    __tablename__ = "task_email_links"
+    __table_args__ = (
+        UniqueConstraint("task_id", "email_id", name="uq_task_email_links_task_id_email_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="tasks.id")
+    email_id: int = Field(foreign_key="emails.id")
+    link_type: str
+    created_at: str
