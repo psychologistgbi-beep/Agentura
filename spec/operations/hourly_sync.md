@@ -13,6 +13,12 @@ cd /Users/gaidabura/Agentura
 scripts/ea-yandex-check
 ```
 
+Post-sync verification (next-week meetings in local DB):
+```bash
+cd /Users/gaidabura/Agentura/apps/executive-cli
+uv run execas calendar next-week --source yandex_caldav
+```
+
 Default policy:
 - `--retries 2` per source (calendar and mail separately)
 - `--backoff-sec 5`
@@ -63,7 +69,9 @@ Recommended ops actions:
 2. Verify connector env vars are present (without printing secret values).
 3. Re-run manually with same retry policy:
    `uv run execas sync hourly --retries 2 --backoff-sec 5`
-4. If source remains unavailable, run manual fallback commands below.
+4. Re-check imported meetings:
+   `uv run execas calendar next-week --source yandex_caldav`
+5. If source remains unavailable, run manual fallback commands below.
 
 If both sources fail:
 - process exits with code `1`

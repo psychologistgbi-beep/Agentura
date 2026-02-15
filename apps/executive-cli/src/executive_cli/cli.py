@@ -41,8 +41,8 @@ from executive_cli.scrum_metrics import (
     compute_scrum_metrics,
 )
 from executive_cli.sync_runner import run_hourly_sync
-from executive_cli.sync_service import IMAP_SCOPE_INBOX, sync_calendar_primary, sync_mailbox
-from executive_cli.timeutil import dt_to_db, parse_local_dt
+from executive_cli.sync_service import CALDAV_SOURCE, IMAP_SCOPE_INBOX, sync_calendar_primary, sync_mailbox
+from executive_cli.timeutil import db_to_dt, dt_to_db, parse_local_dt
 
 app = typer.Typer(
     name="execas",
@@ -213,6 +213,60 @@ def calendar_sync() -> None:
         f"skipped={result.skipped} soft_deleted={result.soft_deleted} "
         f"cursor_kind={result.cursor_kind or '-'} cursor={result.cursor or '-'}"
     )
+
+
+@calendar_app.command("next-week")
+def calendar_next_week(
+    source: str = typer.Option(
+        CALDAV_SOURCE,
+        "--source",
+        help="Busy block source filter (default: yandex_caldav).",
+    ),
+    anchor_date: str | None = typer.Option(
+        None,
+        "--anchor-date",
+        help="Anchor local date in YYYY-MM-DD (default: today in settings timezone).",
+    ),
+) -> None:
+    """List imported meetings for the next local week from the selected source."""
+    source_value = source.strip()
+    if not source_value:
+        raise typer.BadParameter("--source must not be empty.")
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        user_tz, timezone_name = _get_user_timezone(session)
+        local_today = datetime.now(user_tz).date() if anchor_date is None else _parse_date(anchor_date.strip())
+        next_monday = local_today + timedelta(days=(7 - local_today.weekday()))
+        next_sunday = next_monday + timedelta(days=6)
+        range_start = datetime.combine(next_monday, datetime.min.time(), tzinfo=user_tz)
+        range_end = datetime.combine(next_sunday + timedelta(days=1), datetime.min.time(), tzinfo=user_tz)
+
+        calendar = _get_primary_calendar(session)
+        rows = session.exec(
+            select(BusyBlock)
+            .where(BusyBlock.calendar_id == calendar.id)
+            .where(BusyBlock.is_deleted == 0)
+            .where(BusyBlock.source == source_value)
+            .where(BusyBlock.end_dt > dt_to_db(range_start))
+            .where(BusyBlock.start_dt < dt_to_db(range_end))
+            .order_by(BusyBlock.start_dt, BusyBlock.id)
+        ).all()
+
+    print(
+        "[bold]Next-week meetings:[/bold] "
+        f"{next_monday.isoformat()}..{next_sunday.isoformat()} "
+        f"source={source_value} timezone={timezone_name}"
+    )
+    if not rows:
+        print("[yellow]No meetings found for next week.[/yellow]")
+        return
+
+    print(f"Count: {len(rows)}")
+    for row in rows:
+        start_local = db_to_dt(row.start_dt).astimezone(user_tz)
+        end_local = db_to_dt(row.end_dt).astimezone(user_tz)
+        title = row.title or "(untitled)"
+        print(f"- {start_local.strftime('%Y-%m-%d %H:%M')}–{end_local.strftime('%H:%M')} | {title}")
 
 
 @mail_app.command("sync")

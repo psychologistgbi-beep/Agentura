@@ -37,6 +37,7 @@ cd /Users/gaidabura/Agentura/apps/executive-cli
 uv run execas calendar sync
 uv run execas mail sync --mailbox INBOX
 uv run execas sync hourly --retries 2 --backoff-sec 5
+uv run execas calendar next-week --source yandex_caldav
 uv run execas review scrum-metrics --no-run-quality
 uv run pytest -q
 uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80
@@ -51,6 +52,7 @@ scripts/ea-yandex-check --only-smoke
 
 - [ ] Calendar sync works with Yandex endpoint in read-only mode.
 - [ ] Mail sync works for INBOX only.
+- [ ] Next-week meetings are visible from local DB after sync.
 - [ ] No secrets leak in output/logs/errors.
 - [ ] EA scenario doc and helper script are used for live setup.
 - [ ] Hourly sync behavior and fallback documented.

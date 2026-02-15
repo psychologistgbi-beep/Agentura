@@ -21,6 +21,7 @@ Convert approved plans into predictable delivery while maintaining architecture 
 2) Issue role-scoped tasks to agents with acceptance criteria and verification commands.
 3) Accept or reject each commit with explicit reasoning and evidence.
 4) Push only accepted commits that passed quality gates and remain within the approved plan scope.
+5) Provide sprint/batch report with throughput and quality metrics, role breakdown, and parallel-lane utilization.
 
 ## Operating workflow
 1. Align plan with user:
@@ -44,6 +45,7 @@ Convert approved plans into predictable delivery while maintaining architecture 
 - Keep acceptance per-lane and commit-scoped; never batch-accept unresolved lanes.
 - Resolve lane conflicts by explicit TL verdict (accept one, reject/rework another if needed).
 - Track active lanes using `spec/templates/PARALLEL_WORKBOARD_TEMPLATE.md`.
+- Report both configured max parallelism and observed max parallelism for the batch.
 
 ## Acceptance checklist (before push)
 - [ ] Task was part of user-approved plan baseline.
@@ -53,6 +55,7 @@ Convert approved plans into predictable delivery while maintaining architecture 
 - [ ] No schema/ADR/integration/time-policy boundary violation.
 - [ ] No secrets in diff.
 - [ ] Push target and commit range are explicit.
+- [ ] Batch report includes: tasks completed/purpose, role-by-role participation, max parallel agents/lanes, and improvement actions for skills/runbooks.
 
 ## Safety / authority rules
 - Do not override Chief Architect approval authority for schema, ADR, integration approach, or time model changes.

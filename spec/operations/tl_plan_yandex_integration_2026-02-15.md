@@ -23,6 +23,7 @@ Already implemented and available before live credential run:
 - Acceptance checklist artifact: `spec/operations/integration_acceptance_yandex.md`
 - Secure helper for EA setup/smoke checks: `scripts/ea-yandex-check`
 - Security env naming synchronized with connector runtime (`EXECAS_*` in `SECURITY.md`)
+- Next-week import verification command: `uv run execas calendar next-week --source yandex_caldav`
 
 ## Baseline scope (`INT-YANDEX-01`)
 
@@ -66,6 +67,7 @@ Initial estimate is provisional. Next estimates are derived from actual throughp
 - Calendar sync works against user's Yandex CalDAV endpoint without policy violations.
 - Mail sync works against user's Yandex IMAP INBOX only.
 - Read-only constraints preserved end-to-end.
+- Next-week meetings are visible in local SQLite via `calendar next-week`.
 - Hourly sync runbook and fallback steps are validated.
 - Quality gates pass before release acceptance.
 
@@ -78,7 +80,7 @@ Initial estimate is provisional. Next estimates are derived from actual throughp
 ## Status board
 
 - INT-DISC-01: completed (prep artifacts delivered)
-- INT-ARCH-01: pending
-- INT-EXEC-01: in progress (awaiting live credentials run)
-- INT-QA-01: pending
-- INT-OPS-01: in progress (runbook/tooling ready, live validation pending)
+- INT-ARCH-01: completed (architecture review artifact delivered)
+- INT-EXEC-01: completed for readiness, pending live credentials run
+- INT-QA-01: completed (quality verdict + gates passed)
+- INT-OPS-01: completed (runbook/tooling includes next-week verification)

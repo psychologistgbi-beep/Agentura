@@ -9,6 +9,7 @@
 - [ ] Yandex Calendar sync works via `execas calendar sync`.
 - [ ] Yandex Mail sync works via `execas mail sync --mailbox INBOX`.
 - [ ] Combined run works via `execas sync hourly --retries 2 --backoff-sec 5`.
+- [ ] Next-week calendar import verification works via `execas calendar next-week --source yandex_caldav`.
 
 ## Policy acceptance
 
@@ -37,4 +38,5 @@
 | Calendar sync | `uv run execas calendar sync` | `<pass/fail>` | `<ts>` | `<note>` |
 | Mail sync | `uv run execas mail sync --mailbox INBOX` | `<pass/fail>` | `<ts>` | `<note>` |
 | Hourly sync | `uv run execas sync hourly --retries 2 --backoff-sec 5` | `<0/2/1>` | `<ts>` | `<note>` |
+| Next-week import verification | `uv run execas calendar next-week --source yandex_caldav` | `<pass/fail>` | `<ts>` | `<count/notes>` |
 | Metrics snapshot | `uv run execas review scrum-metrics --no-run-quality` | `<pass/fail>` | `<ts>` | `<note>` |

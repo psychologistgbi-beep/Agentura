@@ -45,12 +45,14 @@ Commands:
 cd /Users/gaidabura/Agentura/apps/executive-cli
 uv run execas calendar sync
 uv run execas mail sync --mailbox INBOX
+uv run execas calendar next-week --source yandex_caldav
 ```
 
 Expected:
 - Command exits successfully or returns sanitized, actionable error.
 - No secret values are printed.
 - No non-INBOX mailbox is used.
+- `calendar next-week` prints non-empty result when upcoming meetings exist.
 
 ## Scenario 3: First full operational check
 
@@ -60,11 +62,13 @@ Commands:
 ```bash
 cd /Users/gaidabura/Agentura/apps/executive-cli
 uv run execas sync hourly --retries 2 --backoff-sec 5
+uv run execas calendar next-week --source yandex_caldav
 uv run execas review scrum-metrics --no-run-quality
 ```
 
 Expected:
 - `sync hourly` returns `0` (ok) or `2` (degraded with one source available).
+- `calendar next-week` confirms imported meeting set for the target week.
 - Metrics command writes/prints snapshot for calibration.
 
 ## Scenario 4: Degraded mode handling
@@ -76,6 +80,7 @@ Actions:
 2. Re-run source-specific checks:
    - `uv run execas calendar sync`
    - `uv run execas mail sync --mailbox INBOX`
+   - `uv run execas calendar next-week --source yandex_caldav`
 3. If one source remains down, continue with available source and document degraded status.
 4. Use manual fallback for critical planning continuity.
 

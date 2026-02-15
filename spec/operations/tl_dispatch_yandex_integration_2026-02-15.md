@@ -61,6 +61,7 @@ cd /Users/gaidabura/Agentura/apps/executive-cli
 uv run execas calendar sync
 uv run execas mail sync --mailbox INBOX
 uv run execas sync hourly --retries 2 --backoff-sec 5
+uv run execas calendar next-week --source yandex_caldav
 uv run pytest -q
 uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80
 ```
@@ -74,6 +75,7 @@ Acceptance:
 - Commands complete without secret leakage.
 - INBOX-only behavior is preserved.
 - No write operations to external systems.
+- Next-week meetings report is available from SQLite after sync.
 
 ### INT-QA-01 (QA/SET)
 
@@ -105,7 +107,7 @@ Acceptance:
 | Commit | Task | Role | Verdict | Evidence |
 |---|---|---|---|---|
 | `e76e3d3` | INT-DISC-01 | System Analyst/Product Owner | accepted (prep) | acceptance + EA scenarios + secure helper added |
-| pending | INT-ARCH-01 | Chief Architect | pending | waiting artifacts |
-| pending | INT-EXEC-01 | Executive Assistant | pending | waiting commit + gates |
-| pending | INT-QA-01 | QA/SET | pending | waiting artifacts |
-| `e76e3d3` | INT-OPS-01 | DevOps/SRE + TL | accepted (prep) | hourly runbook updated and integration helper linked |
+| current batch | INT-ARCH-01 | Chief Architect | accepted | `architecture_review_yandex_readonly.md` |
+| current batch | INT-EXEC-01 | Executive Assistant | accepted (readiness) | `calendar next-week` command + tests + helper update + passed gates |
+| current batch | INT-QA-01 | QA/SET | accepted | `qa_verdict_yandex_integration.md` + gate evidence |
+| current batch | INT-OPS-01 | DevOps/SRE + TL | accepted | runbook + acceptance + extended team report updates |

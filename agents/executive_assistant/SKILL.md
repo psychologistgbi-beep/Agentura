@@ -40,6 +40,9 @@ Deliver user-facing behavior safely and incrementally while preserving architect
   - do not print or persist secret values.
 - Operational helper:
   - `scripts/ea-yandex-check` for interactive secure setup + smoke/hourly checks.
+- Mandatory post-sync verification:
+  - `cd apps/executive-cli && uv run execas calendar next-week --source yandex_caldav`
+  - include imported next-week meeting count in EA handoff package.
 - Integration scope constraints:
   - CalDAV sync is read-only;
   - IMAP sync is read-only and mailbox scope is `INBOX` only.
