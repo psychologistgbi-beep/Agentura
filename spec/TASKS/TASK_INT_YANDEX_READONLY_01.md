@@ -18,6 +18,7 @@ Enable production-ready read-only integration with user's Yandex Calendar (CalDA
 ## In scope
 
 - Acceptance criteria and environment checklist.
+- EA credential-handling scenarios and secure setup flow.
 - Architecture safety review for read-only + least privilege.
 - Runtime verification and targeted fixes (if needed).
 - QA verdict and residual-risk report.
@@ -40,12 +41,18 @@ uv run execas review scrum-metrics --no-run-quality
 uv run pytest -q
 uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80
 ```
+Secure helper path (session-only credentials):
+```bash
+cd /Users/gaidabura/Agentura
+scripts/ea-yandex-check --only-smoke
+```
 
 ## Acceptance checks
 
 - [ ] Calendar sync works with Yandex endpoint in read-only mode.
 - [ ] Mail sync works for INBOX only.
 - [ ] No secrets leak in output/logs/errors.
+- [ ] EA scenario doc and helper script are used for live setup.
 - [ ] Hourly sync behavior and fallback documented.
 - [ ] Scrum metrics command is operational for calibration.
 - [ ] TL acceptance ledger updated with verdicts.

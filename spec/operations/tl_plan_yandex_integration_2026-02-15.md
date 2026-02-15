@@ -16,6 +16,14 @@
 Current codebase already contains CalDAV/IMAP connectors, sync services, security guardrails, hourly orchestration, and tests.
 This batch focuses on **production integration readiness** (configuration, live-path validation, observability, and acceptance), not greenfield implementation.
 
+## Applied changes since baseline lock
+
+Already implemented and available before live credential run:
+- EA secure integration scenarios: `spec/operations/ea_yandex_integration_scenarios.md`
+- Acceptance checklist artifact: `spec/operations/integration_acceptance_yandex.md`
+- Secure helper for EA setup/smoke checks: `scripts/ea-yandex-check`
+- Security env naming synchronized with connector runtime (`EXECAS_*` in `SECURITY.md`)
+
 ## Baseline scope (`INT-YANDEX-01`)
 
 1. `INT-DISC-01` (System Analyst + Product Owner + TL)
@@ -40,11 +48,11 @@ This batch focuses on **production integration readiness** (configuration, live-
 
 ## Estimation (compressed, capacity-based)
 
-- Batch A (discovery + architecture lock): **1.5-2.0h**
-- Batch B (execution + fixes): **2.5-4.0h**
-- Batch C (QA + ops + acceptance): **1.5-2.0h**
+- Batch A (discovery + architecture lock): **done (artifact stage complete)**
+- Batch B (execution + fixes): **2.0-3.5h**
+- Batch C (QA + ops + acceptance): **1.0-1.5h**
 
-**Total target:** **5.5-8.0h** (same-day target, assuming credentials/endpoints are ready).
+**Remaining target:** **3.0-5.0h** (same-day target, assuming credentials/endpoints are ready).
 
 ## Calibration rule (agreed)
 
@@ -66,3 +74,11 @@ Initial estimate is provisional. Next estimates are derived from actual throughp
 - Any write-back to external calendar/mail.
 - Any mailbox scope beyond INBOX.
 - Any relaxation of security policy for credentials.
+
+## Status board
+
+- INT-DISC-01: completed (prep artifacts delivered)
+- INT-ARCH-01: pending
+- INT-EXEC-01: in progress (awaiting live credentials run)
+- INT-QA-01: pending
+- INT-OPS-01: in progress (runbook/tooling ready, live validation pending)

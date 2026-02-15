@@ -21,11 +21,13 @@ Goal:
 Artifacts:
 - `spec/operations/integration_acceptance_yandex.md`
 - `spec/operations/ea_yandex_integration_scenarios.md`
+- `scripts/ea-yandex-check`
 
 Acceptance:
 - Checklist is testable and maps to commands.
 - No policy conflicts with `AGENTS.md` security section.
 - EA scenario document defines secure credential handoff and operational flow.
+- Interactive helper supports session-only credential setup (no file persistence).
 
 ### INT-ARCH-01 (Chief Architect)
 
@@ -62,6 +64,11 @@ uv run execas sync hourly --retries 2 --backoff-sec 5
 uv run pytest -q
 uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80
 ```
+Alternative secure setup path:
+```bash
+cd /Users/gaidabura/Agentura
+scripts/ea-yandex-check --only-smoke
+```
 
 Acceptance:
 - Commands complete without secret leakage.
@@ -97,8 +104,8 @@ Acceptance:
 
 | Commit | Task | Role | Verdict | Evidence |
 |---|---|---|---|---|
-| pending | INT-DISC-01 | System Analyst/Product Owner | pending | waiting artifacts |
+| `e76e3d3` | INT-DISC-01 | System Analyst/Product Owner | accepted (prep) | acceptance + EA scenarios + secure helper added |
 | pending | INT-ARCH-01 | Chief Architect | pending | waiting artifacts |
 | pending | INT-EXEC-01 | Executive Assistant | pending | waiting commit + gates |
 | pending | INT-QA-01 | QA/SET | pending | waiting artifacts |
-| pending | INT-OPS-01 | DevOps/SRE + TL | pending | waiting artifacts |
+| `e76e3d3` | INT-OPS-01 | DevOps/SRE + TL | accepted (prep) | hourly runbook updated and integration helper linked |
