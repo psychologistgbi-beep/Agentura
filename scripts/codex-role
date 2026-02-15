@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  codex-role <role> [--exec] [task text...]
+
+Roles:
+  tl  Technical Lead
+  ca  Chief Architect
+  ea  Executive Assistant
+  dh  Developer Helper
+  bc  Business Coach
+
+Examples:
+  codex-role tl "Согласуй план на ближайшие 3 задачи и выдай task briefs."
+  codex-role ea --exec "Реализуй OPS-02 по spec/TASKS/..."
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+ROLE_KEY="$1"
+shift
+
+MODE="interactive"
+if [[ "${1:-}" == "--exec" ]]; then
+  MODE="exec"
+  shift
+fi
+
+TASK_TEXT="${*:-Proceed with the current user request.}"
+
+case "${ROLE_KEY}" in
+  tl)
+    ROLE_NAME="Technical Lead"
+    SKILL_PATH="agents/technical_lead/SKILL.md"
+    ;;
+  ca)
+    ROLE_NAME="Chief Architect"
+    SKILL_PATH="agents/chief_architect/SKILL.md"
+    ;;
+  ea)
+    ROLE_NAME="Executive Assistant"
+    SKILL_PATH="agents/executive_assistant/SKILL.md"
+    ;;
+  dh)
+    ROLE_NAME="Developer Helper"
+    SKILL_PATH="agents/developer_helper/SKILL.md"
+    ;;
+  bc)
+    ROLE_NAME="Business Coach"
+    SKILL_PATH="agents/business_coach/SKILL.md"
+    ;;
+  *)
+    echo "Unknown role: ${ROLE_KEY}" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+PROMPT=$(cat <<EOF
+You are ${ROLE_NAME} for Agentura.
+
+Load and follow strictly:
+- ${REPO_ROOT}/AGENTS.md
+- ${REPO_ROOT}/${SKILL_PATH}
+- ${REPO_ROOT}/spec/templates/PREFLIGHT_STAMP_TEMPLATE.md
+
+Start with a filled PREFLIGHT STAMP for this role/session.
+Then execute the task within role boundaries and produce the required 7-section gate report.
+
+Task:
+${TASK_TEXT}
+EOF
+)
+
+if [[ "${MODE}" == "exec" ]]; then
+  exec codex exec -C "${REPO_ROOT}" --sandbox workspace-write "${PROMPT}"
+fi
+
+exec codex -C "${REPO_ROOT}" --sandbox workspace-write -a on-request "${PROMPT}"

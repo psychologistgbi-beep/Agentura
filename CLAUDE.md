@@ -22,6 +22,7 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
 1. **Authority boundaries are identical regardless of LLM.** The same AGENTS.md section 2 authority table applies to Claude, Codex, and any other runtime. Do not exceed your assigned role's scope.
 
 2. **Role-based command scope is mandatory.**
+   - Technical Lead: plan alignment with user, task orchestration, commit acceptance, guarded `git push`.
    - EA: implementation in `apps/executive-cli`, tests/migrations, `git add/commit`.
    - Chief Architect: docs/spec/ADR/review work only.
    - Developer Helper: planning docs only.
@@ -31,6 +32,7 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
    | Role | Required skill path |
    |------|---------------------|
    | Chief Architect | `agents/chief_architect/SKILL.md` |
+   | Technical Lead | `agents/technical_lead/SKILL.md` |
    | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
    | Developer Helper | `agents/developer_helper/SKILL.md` |
    | Business Coach | `agents/business_coach/SKILL.md` |
@@ -41,7 +43,7 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
    - EA flow: `git add <paths>`, `git commit -m`, `uv run pytest ...`, `uv run execas <local-only command>`
 
 4. **Always-manual approval actions (never auto-allow).**
-   - `git push`
+   - `git push` for roles other than Technical Lead, and any `git push --force*`
    - Destructive operations (`rm -rf`, `git reset --hard`, branch delete, file delete)
    - External services with real credentials
    - Exception for migration integrity quality gate only: `rm -f .data/execas.sqlite` or `rm -f apps/executive-cli/.data/execas.sqlite`, when paired with `uv run execas init`

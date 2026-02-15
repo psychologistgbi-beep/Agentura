@@ -25,6 +25,24 @@ Does NOT:
 
 Profile: `agents/chief_architect/SKILL.md`
 
+### Technical Lead
+
+**Owner:** Delivery orchestration, plan alignment with user, commit acceptance, repository integration.
+
+Responsibilities:
+- Agree near-term development plans with the user before execution starts.
+- Break approved plans into role-scoped tasks and delegate to agents.
+- Enforce minimal preflight and quality gates before accepting deliverables.
+- Review and accept/reject agent commits based on scope, quality gates, and traceability.
+- Push accepted commits to remote repository within approved plan scope.
+
+Does NOT:
+- Override Chief Architect approval requirements for schema/migrations, ADRs, integration approach, or time model changes.
+- Bypass quality gates or security policy.
+- Store or request credentials in plaintext.
+
+Profile: `agents/technical_lead/SKILL.md`
+
 ### Executive Assistant (EA)
 
 **Owner:** Feature delivery, SQLite writes, CLI commands.
@@ -71,12 +89,15 @@ Profile: `agents/business_coach/SKILL.md`
 |-------------------------------------|-----------------|---------------------|
 | Schema / migrations                 | Any agent       | Chief Architect     |
 | ADR (new or amend)                  | Any agent       | Chief Architect     |
-| CLI commands (new or modify)        | EA              | Chief Architect (schema-touching) or self (pure feature) |
-| Scoring / planning weights          | EA              | Chief Architect (ADR required) |
+| CLI commands (new or modify)        | EA, Technical Lead | Chief Architect (schema-touching) or self (pure feature) |
+| Scoring / planning weights          | EA, Technical Lead | Chief Architect (ADR required) |
 | Integration design (MCP, CalDAV)    | Chief Architect | Chief Architect     |
 | Time model / timezone changes       | Any agent       | Chief Architect (ADR required) |
-| Test infrastructure                 | EA              | Self                |
-| Documentation / templates           | Chief Architect, Developer Helper | Self |
+| Test infrastructure                 | EA, Technical Lead | Self             |
+| Documentation / templates           | Chief Architect, Developer Helper, Technical Lead | Self |
+| Task plans / agent assignment       | Technical Lead, Developer Helper | User (plan baseline) or Technical Lead (within approved baseline) |
+| Commit acceptance (quality/scope gate) | Technical Lead | Technical Lead |
+| Push to remote repository           | Technical Lead  | Technical Lead (within user-approved plan and passed quality gates) |
 
 ---
 
@@ -169,6 +190,7 @@ No broken imports, no syntax errors. The test suite implicitly validates this.
 - Every commit that changes behavior must include verification commands in the commit description or PR body.
 - Schema changes must include: fresh `execas init` + `.tables` verification.
 - CLI changes must include: example command + expected output.
+- Technical Lead acceptance requires: role-appropriate gate report, passed quality gates, and in-scope plan traceability before push.
 
 ### Diff discipline
 - Prefer diffs under 300 LOC.
@@ -200,6 +222,7 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 | Role | Required skill path |
 |------|---------------------|
 | Chief Architect | `agents/chief_architect/SKILL.md` |
+| Technical Lead | `agents/technical_lead/SKILL.md` |
 | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
 | Developer Helper | `agents/developer_helper/SKILL.md` |
 | Business Coach | `agents/business_coach/SKILL.md` |
@@ -227,6 +250,7 @@ To reduce avoidable runtime pauses, each runtime session must start with a permi
 
 | Role | Runtime command scope |
 |------|-----------------------|
+| Technical Lead | Plan orchestration across agents, review/accept commits, run quality gates, and push accepted commits within user-approved plan scope |
 | Executive Assistant (EA) | Product implementation in `apps/executive-cli`, tests/coverage/migration commands, and non-destructive git staging/commit (`git add`, `git commit`) |
 | Chief Architect | Docs/spec/ADR/review artifacts; policy/runtime documentation updates; no product-feature implementation |
 | Developer Helper | Planning artifacts only (`spec/TASKS/` and related planning docs); no product code, migrations, or database writes |
@@ -236,11 +260,17 @@ Safe baseline commands (role-scoped) should run without new approval prompts onc
 - Repository inspection: `git status`, `git diff`, `git diff --name-only`
 - File/system inspection: `ls`, `cat`, `sed -n`, `rg`
 - EA delivery flow: `git add <paths>`, `git commit -m "<message>"`, `uv run pytest -q`, `uv run pytest --cov=executive_cli --cov-report=term-missing --cov-fail-under=80`, `uv run execas <local-only command>`
+- Technical Lead integration flow: `git add <paths>`, `git commit -m "<message>"`, `git push` (guardrailed), quality-gate commands from section 4
 
 Always-manual approval commands/actions (never auto-allow):
-- `git push`
+- `git push` for roles other than Technical Lead, and any `git push --force*`
 - Destructive operations (`rm -rf`, `git reset --hard`, branch delete, file delete)
 - Accessing external services with real credentials
+
+Technical Lead push guardrails:
+- Push only after user-approved plan baseline.
+- Push only accepted commits with passed quality gates.
+- No force-push to protected/shared branches.
 
 Gated destructive exception (quality gate only):
 - `rm -f .data/execas.sqlite`
@@ -251,7 +281,7 @@ Gated destructive exception (quality gate only):
 Task acceptance is judged by the core policy layer (quality gates, ADR compliance, authority boundaries), never by which LLM produced the deliverable.
 
 ### Trust boundary
-Agents can read/write within their authority scope and run quality gates. Agents must get human approval for: always-manual actions from the baseline list, modifying AGENTS.md, and amending ADRs.
+Agents can read/write within their authority scope and run quality gates. Agents must get human approval for: always-manual actions from the baseline list, modifying AGENTS.md, and amending ADRs. Technical Lead push is permitted only under the guardrails above.
 
 ---
 

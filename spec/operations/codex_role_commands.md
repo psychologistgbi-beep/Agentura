@@ -1,0 +1,36 @@
+# Codex Role Commands
+
+This project provides a role launcher for Codex CLI:
+
+- `/Users/gaidabura/Agentura/scripts/codex-role`
+- `/Users/gaidabura/Agentura/scripts/codex-role-aliases.sh`
+
+## Enable shortcuts
+
+```bash
+cd /Users/gaidabura/Agentura
+source scripts/codex-role-aliases.sh
+```
+
+## Interactive role sessions
+
+```bash
+codex_tl "Согласуй план на спринт и выдай task briefs."
+codex_ca "Сделай architecture review по ARCH-ALIGN задаче."
+codex_ea "Реализуй задачу из spec/TASKS и приложи gate report."
+codex_dh "Декомпозируй TECH_SPEC в задачи."
+codex_bc "Дай рекомендации по приоритетам на неделю."
+```
+
+## Non-interactive role runs
+
+```bash
+codex_tl_exec "Проверь gate reports, прими коммиты и подготовь push plan."
+codex_ea_exec "Выполни OPS-02 по задаче и верни 7-section report."
+```
+
+## Notes
+
+- Launcher injects role context using `AGENTS.md`, role `SKILL.md`, and `spec/templates/PREFLIGHT_STAMP_TEMPLATE.md`.
+- `Technical Lead` has guarded push authority per `AGENTS.md` section 7.
+- For implementation tasks, role `SKILL.md` discovery (R2) is mandatory.
