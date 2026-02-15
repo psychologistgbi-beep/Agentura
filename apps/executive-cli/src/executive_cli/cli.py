@@ -35,6 +35,7 @@ from executive_cli.models import (
 )
 from executive_cli.planner import VALID_VARIANTS, build_and_persist_day_plan
 from executive_cli.review import build_and_persist_weekly_review, validate_week
+from executive_cli.sync_runner import run_hourly_sync
 from executive_cli.sync_service import IMAP_SCOPE_INBOX, sync_calendar_primary, sync_mailbox
 from executive_cli.timeutil import dt_to_db, parse_local_dt
 
@@ -55,6 +56,7 @@ project_app = typer.Typer(help="Manage projects (reference data).")
 task_app = typer.Typer(help="Manage GTD tasks.")
 plan_app = typer.Typer(help="Manage deterministic day planning.")
 review_app = typer.Typer(help="Weekly review reports.")
+sync_app = typer.Typer(help="Run combined external sync orchestration.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(calendar_app, name="calendar")
@@ -65,6 +67,7 @@ app.add_typer(decision_app, name="decision")
 app.add_typer(people_app, name="people")
 app.add_typer(project_app, name="project")
 app.add_typer(review_app, name="review")
+app.add_typer(sync_app, name="sync")
 app.add_typer(task_app, name="task")
 app.add_typer(plan_app, name="plan")
 
@@ -233,6 +236,61 @@ def mail_sync(
         f"inserted={result.inserted} updated={result.updated} "
         f"cursor_kind={result.cursor_kind} cursor={result.cursor}"
     )
+
+
+@sync_app.command("hourly")
+def sync_hourly(
+    retries: int = typer.Option(2, "--retries", min=0, help="Retry count per source after first attempt."),
+    backoff_sec: int = typer.Option(
+        5,
+        "--backoff-sec",
+        min=0,
+        help="Exponential backoff base in seconds (base * 2^attempt).",
+    ),
+) -> None:
+    """Run calendar and mail sync sequentially with deterministic retries/backoff."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        outcome = run_hourly_sync(
+            run_calendar=lambda: sync_calendar_primary(session, connector=CalDavConnector.from_env()),
+            run_mail=lambda: sync_mailbox(
+                session,
+                connector=ImapConnector.from_env(),
+                mailbox=IMAP_SCOPE_INBOX,
+            ),
+            retries=retries,
+            backoff_sec=backoff_sec,
+        )
+
+    for source_outcome in (outcome.calendar, outcome.mail):
+        if source_outcome.success:
+            print(f"[green]{source_outcome.source} sync ok.[/green] attempts={source_outcome.attempts}")
+            continue
+
+        reason = source_outcome.reason or "unknown"
+        print(
+            f"[yellow]{source_outcome.source} degraded.[/yellow] "
+            f"attempts={source_outcome.attempts} reason={reason}"
+        )
+        if source_outcome.source == "calendar":
+            print(
+                "Fallback: use manual input via "
+                "execas busy add --date YYYY-MM-DD --start HH:MM --end HH:MM --title \"...\""
+            )
+        else:
+            print(
+                "Fallback: create follow-up manually via "
+                'execas task capture "Email follow-up" --estimate 30 --priority P2 --status NEXT'
+            )
+
+    if outcome.exit_code == 0:
+        print("[green]Hourly sync complete.[/green] status=ok")
+        return
+    if outcome.exit_code == 2:
+        print("[yellow]Hourly sync complete.[/yellow] status=degraded")
+        raise typer.Exit(code=2)
+
+    print("[red]Hourly sync failed.[/red] status=degraded")
+    raise typer.Exit(code=1)
 
 
 @config_app.command("show")
