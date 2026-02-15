@@ -19,6 +19,11 @@ cd /Users/gaidabura/Agentura/apps/executive-cli
 uv run execas calendar next-week --source yandex_caldav
 ```
 
+Weekday sanity-check rule (operations):
+- On Monday-Friday, run post-sync verification after scheduler run.
+- If `sync hourly` is `status=ok` and `calendar next-week` returns no meetings for 2 consecutive runs, raise alert.
+- Suppress alert when maintenance window or degraded-mode incident is explicitly declared.
+
 Default policy:
 - `--retries 2` per source (calendar and mail separately)
 - `--backoff-sec 5`
@@ -37,6 +42,9 @@ Default policy:
 ```cron
 # Every hour at minute 0
 0 * * * * cd /Users/gaidabura/Agentura/apps/executive-cli && uv run execas sync hourly --retries 2 --backoff-sec 5 >> /tmp/execas-hourly-sync.log 2>&1
+
+# Optional sanity check (weekday alert hook to monitoring wrapper)
+5 * * * 1-5 cd /Users/gaidabura/Agentura/apps/executive-cli && uv run execas calendar next-week --source yandex_caldav >> /tmp/execas-next-week.log 2>&1
 ```
 
 ### launchd (macOS)

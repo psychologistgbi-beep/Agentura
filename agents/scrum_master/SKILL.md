@@ -22,13 +22,17 @@ Keep delivery predictable by protecting Scrum discipline and continuously improv
 1. Validate ceremony cadence and time-boxes.
 2. Identify blockers, assign owners, and track removal.
 3. Surface WIP violations and process anti-patterns.
-4. Close retrospective actions with explicit status.
+4. Enforce blocked-lane escalation SLA: escalate to TL after 2 hours unresolved blocker.
+5. Enforce active-lane WIP limit: maximum 4 concurrent lanes unless TL approves exception.
+6. Close retrospective actions with explicit status.
 
 ## Acceptance checklist
 - [ ] Daily/Planning/Review/Retro outcomes are recorded.
 - [ ] Blockers have owner and due date.
 - [ ] Flow metrics are updated and visible.
 - [ ] Improvement actions are applied in next sprint.
+- [ ] Any blocked lane over 2 hours is escalated to TL with blocker note.
+- [ ] Active lane count is within WIP limit (<= 4) or approved exception is documented.
 
 ## Safety / authority rules
 - Do not accept/reject commits (Technical Lead authority).

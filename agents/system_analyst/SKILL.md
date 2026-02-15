@@ -19,12 +19,14 @@ Reduce ambiguity before implementation starts. Every task should be testable, sc
 1) Produce clear requirement packages (goal, scope, constraints, acceptance criteria).
 2) Maintain traceability links: objective -> story -> task -> verification.
 3) Flag requirement gaps as explicit [TBD] with proposed defaults.
+4) For integration tasks, attach an explicit DoR package based on `spec/templates/INTEGRATION_DOR_TEMPLATE.md`.
 
 ## Operating workflow
 1. Clarify business objective with Product Owner/TL.
 2. Decompose into stories/tasks with explicit in-scope/out-of-scope boundaries.
 3. Define testable acceptance criteria and verification commands.
-4. Validate DoR before handing off to implementation.
+4. For integration scope, document provider endpoint, access scope, security constraints, and acceptance commands.
+5. Validate DoR before handing off to implementation.
 
 ## Acceptance checklist
 - [ ] Business outcome is explicit.
@@ -32,6 +34,11 @@ Reduce ambiguity before implementation starts. Every task should be testable, sc
 - [ ] Dependencies and assumptions are documented.
 - [ ] Task references are traceable to spec/backlog.
 - [ ] Handoff package is implementable without hidden context.
+- [ ] Integration DoR package includes:
+  - provider and endpoint details;
+  - approved access scope;
+  - security constraints (credential handling, least privilege);
+  - acceptance commands and expected evidence.
 
 ## Safety / authority rules
 - Do not reprioritize backlog without Product Owner approval.

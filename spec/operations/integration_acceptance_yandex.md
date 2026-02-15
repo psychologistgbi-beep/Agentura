@@ -10,6 +10,7 @@
 - [ ] Yandex Mail sync works via `execas mail sync --mailbox INBOX`.
 - [ ] Combined run works via `execas sync hourly --retries 2 --backoff-sec 5`.
 - [ ] Next-week calendar import verification works via `execas calendar next-week --source yandex_caldav`.
+- [ ] `calendar next-week` timezone in output matches assistant timezone setting.
 
 ## Policy acceptance
 
@@ -22,6 +23,7 @@
 - [ ] Credentials used only through environment variables.
 - [ ] No secret leakage in command output/logs.
 - [ ] No secrets in repository files or SQLite.
+- [ ] Error/degraded logs are redacted (no credentials/tokens/password fragments).
 
 ## Operational acceptance
 
@@ -39,4 +41,6 @@
 | Mail sync | `uv run execas mail sync --mailbox INBOX` | `<pass/fail>` | `<ts>` | `<note>` |
 | Hourly sync | `uv run execas sync hourly --retries 2 --backoff-sec 5` | `<0/2/1>` | `<ts>` | `<note>` |
 | Next-week import verification | `uv run execas calendar next-week --source yandex_caldav` | `<pass/fail>` | `<ts>` | `<count/notes>` |
+| Timezone check | `uv run execas config show` + `uv run execas calendar next-week --source yandex_caldav` | `<pass/fail>` | `<ts>` | `<timezone matches>` |
+| Redaction check | `uv run execas sync hourly --retries 0 --backoff-sec 1` (failure path) | `<pass/fail>` | `<ts>` | `<no secret strings>` |
 | Metrics snapshot | `uv run execas review scrum-metrics --no-run-quality` | `<pass/fail>` | `<ts>` | `<note>` |

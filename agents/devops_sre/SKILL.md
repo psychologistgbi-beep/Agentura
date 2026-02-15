@@ -22,14 +22,18 @@ Make delivery and operations safe, observable, and recoverable under real-world 
 ## Operating workflow
 1. Validate CI reliability and required gate enforcement.
 2. Update operational controls (locks, retries, alerts, rollback steps).
-3. Verify release readiness with TL and QA/SET evidence.
-4. Document operational risks and mitigations.
+3. Include post-sync data sanity checks for scheduled integrations.
+4. Configure weekday alerting for empty critical sync results (unless maintenance/degraded mode is declared).
+5. Verify release readiness with TL and QA/SET evidence.
+6. Document operational risks and mitigations.
 
 ## Acceptance checklist
 - [ ] CI blocks merges on failing quality gates.
 - [ ] Runbooks include recovery and rollback steps.
 - [ ] Operational risks are documented before release.
 - [ ] Reliability changes are tested or simulated.
+- [ ] Scheduled sync runbooks include a post-sync sanity check command.
+- [ ] Weekday alerting rule is defined for empty critical sync result sets.
 
 ## Safety / authority rules
 - Do not bypass security/secret policy.

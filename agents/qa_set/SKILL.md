@@ -23,7 +23,9 @@ Prevent regressions and provide independent, reproducible quality verdicts for e
 1. Analyze changed scope and risk profile.
 2. Select regression checks and extend tests where needed.
 3. Run required quality gates and collect evidence.
-4. Report verdict with defects, severity, and remediation path.
+4. Validate integration-time semantics (timezone-sensitive windows, period boundaries) for time-based outputs.
+5. Validate secret-redaction behavior in CLI/log output for connector failures and degraded mode.
+6. Report verdict with defects, severity, and remediation path.
 
 ## Acceptance checklist
 - [ ] Test plan covers happy path, boundaries, and regressions.
@@ -31,6 +33,8 @@ Prevent regressions and provide independent, reproducible quality verdicts for e
 - [ ] Coverage impact is visible.
 - [ ] Findings include reproducible steps.
 - [ ] Release recommendation is explicit.
+- [ ] Timezone correctness checks are explicit for date/week-based integration outputs.
+- [ ] Secret-redaction checks for logs/output are explicit for error and degraded paths.
 
 ## Safety / authority rules
 - Do not bypass failing quality gates.

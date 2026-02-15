@@ -19,7 +19,9 @@ Lane types:
 - **D: Operations lane** (DevOps/SRE)
 - **E: Orchestration lane** (TL, SM)
 
-Maximum recommended active lanes per sprint batch: **4**.
+Maximum active lanes per sprint batch: **4**.
+Exception policy:
+- Temporary >4 is allowed only with explicit TL approval and documented rationale.
 
 ## 3. Session and terminal rules
 
@@ -79,6 +81,7 @@ Minimum sync cadence for active parallel batch:
 - lane heartbeat every 2 hours (`status`, `blockers`, `next step`);
 - one daily synchronization checkpoint across all lane owners;
 - explicit blocked-state escalation to TL and SM.
+- blocked-lane escalation SLA: unresolved blocker for 2 hours must be escalated to TL by SM.
 
 ## 10. Parallel anti-patterns
 

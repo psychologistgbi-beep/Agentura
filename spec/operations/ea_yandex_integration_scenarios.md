@@ -53,6 +53,7 @@ Expected:
 - No secret values are printed.
 - No non-INBOX mailbox is used.
 - `calendar next-week` prints non-empty result when upcoming meetings exist.
+- `calendar next-week` timezone label matches `execas config show` timezone value.
 
 ## Scenario 3: First full operational check
 
@@ -70,6 +71,7 @@ Expected:
 - `sync hourly` returns `0` (ok) or `2` (degraded with one source available).
 - `calendar next-week` confirms imported meeting set for the target week.
 - Metrics command writes/prints snapshot for calibration.
+- Any degraded/error output remains sanitized (no credentials or token fragments).
 
 ## Scenario 4: Degraded mode handling
 
