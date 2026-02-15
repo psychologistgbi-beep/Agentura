@@ -109,15 +109,13 @@ Constraints:
 - Confirm AGENTS.md authority line cited in role confirmation matches the claimed role
 - Check commit messages include role context (e.g., "Chief Architect" or task ID)
 
-**Preflight smoke-check (run before implementation tasks):**
+**Preflight smoke-check (minimal, run before implementation tasks):**
 
 | Check | Command / action | Pass condition |
 |-------|-----------------|----------------|
 | Instruction injection | Agent reads `AGENTS.md` and states the number of sections | Correct count (currently 8 sections) |
 | Skill discovery | Agent reads the assigned role skill file at its mapped path and states the role's mission | Skill file exists and mission text matches file content |
 | Task discovery | Agent lists files matching `spec/TASKS/TASK_*.md` | Lists at least TASK_R1 and TASK_R2_R4 |
-| Quality gate dry-run | Agent runs `cd apps/executive-cli && uv run pytest -q` | Exit code 0, tests pass |
-| Gate report format | Agent produces a stub 7-section report with placeholder content | All 7 section headers present |
 | Permissions readiness | Agent runs baseline-safe commands for assigned role without new approvals | All baseline-safe checks pass; always-manual commands remain approval-gated |
 
 ### Claude (Anthropic — Claude Code)
@@ -143,15 +141,13 @@ Constraints:
 - Co-Authored-By trailer in commits identifies the model
 - Conversation transcript preserves the full chain of reads → analysis → edits → commit
 
-**Preflight smoke-check (run before implementation tasks):**
+**Preflight smoke-check (minimal, run before implementation tasks):**
 
 | Check | Command / action | Pass condition |
 |-------|-----------------|----------------|
 | Instruction injection | Read `CLAUDE.md` and `AGENTS.md`; state the number of AGENTS.md sections | `CLAUDE.md` exists and is loaded; correct section count (currently 8) |
 | Skill discovery | `Read("<mapped role skill path>")`; state role's mission | Skill file exists and mission text matches file content |
 | Task discovery | `Glob("spec/TASKS/TASK_*.md")` | Lists at least TASK_R1 and TASK_R2_R4 |
-| Quality gate dry-run | `Bash("cd apps/executive-cli && uv run pytest -q")` | Exit code 0, all tests pass |
-| Gate report format | Produce a stub 7-section report with placeholder content | All 7 section headers present |
 | Permissions readiness | Run baseline-safe commands for assigned role in Bash tool | No new approvals for baseline-safe commands; always-manual commands still gated |
 
 ### Generic Runtime (other LLMs)
@@ -216,14 +212,14 @@ A runtime adapter is considered **ready** (pass) when all of the following hold:
 | R1 | Agent can read `AGENTS.md` and correctly identify its sections | Preflight check: instruction injection |
 | R2 | Agent can locate and read the assigned role's `SKILL.md` at mapped path | Preflight check: skill discovery (mandatory) |
 | R3 | Agent can discover task files in `spec/TASKS/` | Preflight check: task discovery |
-| R4 | Agent can execute quality gates (`uv run pytest`) and report results | Preflight check: quality gate dry-run |
-| R5 | Agent can produce a 7-section gate report | Preflight check: gate report format |
-| R6 | Agent respects authority boundaries from AGENTS.md section 2 | Verified in gate report: role confirmation section |
+| R4 | Agent passes permissions readiness for baseline-safe commands | Preflight check: permissions readiness |
+| R5 | Agent respects authority boundaries from AGENTS.md section 2 | Verified in gate report: role confirmation section |
+| R6 | Agent can produce a 7-section gate report | Verified in final deliverable |
 | R7 | Agent does not store credentials in repo or database | Verified by diff review |
-| R8 | Agent passes permissions readiness for baseline-safe commands | Preflight check: permissions readiness |
+| R8 | Quality gates pass before commit/merge (`pytest`, coverage, migration integrity when applicable) | Verified in implementation handoff / CI output |
 
 **Fail = not ready to execute.** If any criterion fails, the runtime adapter is not considered operational for implementation tasks. The agent must resolve the failure before proceeding, or the user must switch to a runtime that passes.
 - Missing/unreadable role SKILL file (R2) is a hard fail.
 - Implementation-task fallback to AGENTS.md-only context is a hard fail.
 
-**Preflight is mandatory.** Every implementation task session must begin with the runtime's preflight smoke-check (defined per-adapter above). Architecture-only tasks (docs, ADRs) may skip quality gate dry-run (R4) but must pass all other criteria, including permissions readiness (R8).
+**Preflight is mandatory.** Every implementation task session must begin with the runtime's minimal preflight smoke-check (instruction injection, skill discovery R2, task discovery, permissions readiness). Architecture-only tasks may skip task discovery when no `spec/TASKS/` file is involved.

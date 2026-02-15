@@ -171,17 +171,18 @@ This checklist is applied identically regardless of which runtime produced the d
 
 ---
 
-## 5. Runtime Preflight (mandatory before implementation)
+## 5. Runtime Preflight (minimal mandatory before implementation)
 
 Before an agent begins any implementation task (code, migrations, CLI commands), it must pass the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md` for its specific runtime.
+Use the short session-start template: `spec/templates/PREFLIGHT_STAMP_TEMPLATE.md`.
 
 ### What preflight verifies
 1. **Instruction injection** — the agent has loaded AGENTS.md (and CLAUDE.md for Claude runtime).
 2. **Skill discovery (R2)** — the agent can read the assigned role's mapped `agents/<role>/SKILL.md`.
 3. **Task discovery** — the agent can find task files in `spec/TASKS/`.
-4. **Quality gate execution** — the agent can run `uv run pytest` and report results.
-5. **Gate report format** — the agent can produce the 7-section verification gate report.
-6. **Permissions readiness** — safe baseline commands for the assigned role execute without new approval prompts.
+4. **Permissions readiness** — safe baseline commands for the assigned role execute without new approval prompts.
+
+Quality gates remain mandatory, but are validated before commit/merge (AGENTS.md section 4), not in session-start preflight.
 
 ### Permissions readiness (mandatory block)
 Preflight is incomplete until permissions readiness is explicitly evaluated.
@@ -198,9 +199,9 @@ Preflight is incomplete until permissions readiness is explicitly evaluated.
 - For implementation tasks, runtime attempts to continue using AGENTS.md only without loading the assigned role SKILL file.
 
 ### When preflight is required
-- **Implementation tasks** (code, migrations, tests): all 6 checks required.
-- **Architecture tasks** (docs, ADRs, process): checks 1–3, 5, and 6 required; check 4 (quality gate dry-run) may be skipped if no code is involved.
-- **Skipping preflight** makes the deliverable "not ready to execute" — the human reviewer should request preflight before accepting.
+- **Implementation tasks** (code, migrations, tests): all 4 checks required.
+- **Architecture tasks** (docs, ADRs, process): checks 1, 2, and 4 required; check 3 may be skipped if no `spec/TASKS/` file is involved.
+- **Skipping preflight** makes the deliverable `not ready to execute` — the human reviewer should request preflight before accepting.
 
 ### Preflight is per-session
 Preflight runs once at the start of a task session. If the agent continues in the same session, preflight does not need to repeat. A new session (e.g., context reset, new conversation) requires a new preflight.
@@ -268,4 +269,4 @@ These invariants hold regardless of which agent or runtime is operating:
 | **Verification gate** | The 7-section structured report that proves an agent operated within its assigned role (section 4 of this document) |
 | **Handoff contract** | The "Implementation handoff" section of a gate report — defines what the next agent can do and what requires further approval |
 | **Core policy layer** | The runtime-agnostic set of rules (AGENTS.md, ADRs, skills, quality gates) that all agents must follow |
-| **Runtime preflight** | A per-session smoke-check that verifies the runtime adapter can access instructions, skills, tasks, quality gates, and produce a gate report (section 5) |
+| **Runtime preflight** | A per-session smoke-check that verifies the runtime adapter can access instructions, role skills, tasks, and baseline permissions readiness (section 5) |

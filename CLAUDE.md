@@ -55,7 +55,7 @@ Agentura is a personal Executive Assistant system built as a Python CLI (`apps/e
 
 6. **Verification gate for architecture and development tasks.** Every task deliverable (architecture or implementation) must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. See `spec/AGENT_RUNTIME.md` section 4.
 
-7. **Preflight before implementation includes strict skill discovery and permissions readiness.** Run the runtime preflight smoke-check from `spec/AGENT_RUNTIME_ADAPTERS.md` (Claude section), including R2 skill discovery and a permissions readiness check. If baseline-safe commands require new approvals, or if the assigned role SKILL file is missing/unreadable, status is `not ready to execute`. For implementation tasks, AGENTS.md-only fallback is prohibited.
+7. **Use minimal preflight before implementation.** Run the runtime preflight smoke-check from `spec/AGENT_RUNTIME_ADAPTERS.md` (Claude section): instruction injection, R2 skill discovery, task discovery, and permissions readiness. If baseline-safe commands require new approvals, or if the assigned role SKILL file is missing/unreadable, status is `not ready to execute`. For implementation tasks, AGENTS.md-only fallback is prohibited.
 
 8. **ADR before schema change.** No migration without an approved ADR in `spec/ARCH_DECISIONS.md`.
 

@@ -207,10 +207,20 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 ### Verification gate (runtime-agnostic)
 Every task deliverable — architecture **and** development — must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. This gate is **mandatory for all runtimes** — see `spec/AGENT_RUNTIME.md` section 4.
 
-### Runtime preflight (mandatory before implementation)
-Before starting any implementation task, the agent must pass the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md`. A task session without successful preflight is considered "not ready to execute". See `spec/AGENT_RUNTIME.md` section 5.
-R2 (skill discovery) is mandatory: the assigned role must load the mapped `agents/<role>/SKILL.md` path above.
-For implementation tasks, missing/unreadable role SKILL file is a hard fail (`not ready to execute`), and fallback behavior of "continue using AGENTS.md only" is prohibited.
+### Runtime preflight (minimal mandatory before implementation)
+Before starting any implementation task, the agent must pass the minimal runtime preflight defined in `spec/AGENT_RUNTIME_ADAPTERS.md`. A task session without successful preflight is `not ready to execute` (see `spec/AGENT_RUNTIME.md` section 5).
+
+Minimal required checks:
+1. Instruction injection (AGENTS.md loaded)
+2. Skill discovery R2 (assigned role loads mapped `agents/<role>/SKILL.md`)
+3. Task discovery (`spec/TASKS/TASK_*.md` is discoverable)
+4. Permissions readiness (baseline-safe commands run without new approvals)
+
+Hard fail rules:
+- Missing/unreadable role SKILL file is `not ready to execute`.
+- For implementation tasks, fallback behavior of "continue using AGENTS.md only" is prohibited.
+
+Use short session-start template: `spec/templates/PREFLIGHT_STAMP_TEMPLATE.md`.
 
 ### Agent Permissions Baseline
 To reduce avoidable runtime pauses, each runtime session must start with a permissions baseline aligned to role scope.
