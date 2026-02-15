@@ -1,0 +1,3 @@
+name: Agentura EA Yandex Live Run
+description: Run the secure EA live Yandex integration flow with next-week import verification.
+allow_implicit_invocation: false

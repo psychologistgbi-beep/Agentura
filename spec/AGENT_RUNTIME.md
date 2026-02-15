@@ -37,6 +37,7 @@ Everything in this layer is the same regardless of which LLM executes the agent:
 | Operating model | `AGENTS.md` | Agent roles, authority boundaries, security policy |
 | Architecture decisions | `spec/ARCH_DECISIONS.md` | Schema, time model, integration approach |
 | Agent skill profiles | `agents/<role>/SKILL.md` | Per-role mission, decision rules, checklists |
+| Repository skill catalog | `.agents/skills/*/SKILL.md` | Task-scoped reusable workflows (explicit/implicit invocation) |
 | Task specifications | `spec/TASKS/TASK_*.md` | Scoped implementation instructions |
 | Acceptance criteria | `spec/ACCEPTANCE.md` | Definition of done |
 | Quality gates | `AGENTS.md` section 4 | Tests, coverage, migration integrity |
@@ -95,6 +96,11 @@ Agent skill definitions are stored in the repository under a predictable path st
 │   │   └── SKILL.md                   # QA/SET profile
 │   └── devops_sre/
 │       └── SKILL.md                   # DevOps/SRE profile
+├── .agents/
+│   └── skills/
+│       └── <skill_name>/
+│           ├── SKILL.md               # Codex skill (name/description + workflow)
+│           └── agents/openai.yaml     # Optional metadata (implicit policy, UI hints)
 └── spec/
     ├── AGENT_RUNTIME.md               # This file (core policy + layer model)
     ├── AGENT_RUNTIME_ADAPTERS.md      # Per-runtime adapter details
@@ -107,6 +113,7 @@ Agent skill definitions are stored in the repository under a predictable path st
 ### Path conventions
 
 - **Agent profiles:** `agents/<role_snake_case>/SKILL.md`
+- **Codex skill catalog:** `.agents/skills/<skill_name>/SKILL.md`
 - **Shared templates:** `spec/templates/<NAME>_TEMPLATE.md`
 - **Task specifications:** `spec/TASKS/TASK_<ID>_<NAME>.md`
 - **Integration plans:** `spec/integrations/<service_name>.md`
@@ -197,8 +204,9 @@ Use the short session-start template: `spec/templates/PREFLIGHT_STAMP_TEMPLATE.m
 ### What preflight verifies
 1. **Instruction injection** — the agent has loaded AGENTS.md (and CLAUDE.md for Claude runtime).
 2. **Skill discovery (R2)** — the agent can read the assigned role's mapped `agents/<role>/SKILL.md`.
-3. **Task discovery** — the agent can find task files in `spec/TASKS/`.
-4. **Permissions readiness** — safe baseline commands for the assigned role execute without new approval prompts.
+3. **Repo skill catalog discovery** — the agent can discover `.agents/skills/*/SKILL.md` and select relevant skill(s).
+4. **Task discovery** — the agent can find task files in `spec/TASKS/`.
+5. **Permissions readiness** — safe baseline commands for the assigned role execute without new approval prompts.
 
 Quality gates remain mandatory, but are validated before commit/merge (AGENTS.md section 4), not in session-start preflight.
 

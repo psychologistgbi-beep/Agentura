@@ -1,0 +1,3 @@
+name: Agentura TL Acceptance Ledger
+description: Run Technical Lead acceptance checks and update commit verdict ledger.
+allow_implicit_invocation: true

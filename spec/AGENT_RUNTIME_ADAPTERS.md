@@ -17,7 +17,7 @@ This document describes how each supported LLM runtime discovers and loads the A
 | Aspect | Codex (OpenAI) | Claude (Anthropic) | Generic Runtime (manual context injection) |
 |--------|---------------|-------------------|-----------------|
 | **Instruction injection** | `AGENTS.md` at repo root is auto-loaded as system context; task prompt includes role + file refs | `CLAUDE.md` at repo root for project instructions; conversation system prompt for role assignment | User pastes relevant AGENTS.md sections + SKILL.md into system prompt manually |
-| **Skill discovery paths** | Reads `agents/<role>/SKILL.md` via file access tools; scans `spec/TASKS/` for task files | Reads `agents/<role>/SKILL.md` via Read tool; scans `spec/TASKS/` via Glob tool | User provides file contents in prompt or attaches files |
+| **Skill discovery paths** | Reads `agents/<role>/SKILL.md` via file access tools; reads repo skills from `.agents/skills/*/SKILL.md`; scans `spec/TASKS/` for task files | Reads `agents/<role>/SKILL.md` via Read tool; reads repo skills from `.agents/skills/*/SKILL.md`; scans `spec/TASKS/` via Glob tool | User provides file contents in prompt or attaches files |
 | **Quality gate execution** | Runs `uv run pytest` via sandbox shell; checks exit code | Runs `uv run pytest` via Bash tool; checks output | User runs gates manually and reports results |
 | **Git operations** | Sandbox shell with git access; commits within sandbox | Bash tool with git access; commits with Co-Authored-By trailer | User commits manually after review |
 | **File editing** | Applies patches/edits via code editing tools | Uses Edit/Write tools for file modifications | User applies changes manually |
@@ -100,6 +100,7 @@ Constraints:
 
 **Skill discovery:**
 - Agent resolves role to mapped path in this document and reads that `agents/<role>/SKILL.md` file
+- Agent discovers repo skills in `.agents/skills/*/SKILL.md` and applies explicit/implicit triggers as needed
 - Agent reads `spec/TASKS/TASK_*.md` for task specifications
 - Agent reads `spec/ARCH_DECISIONS.md` for ADR context
 - No special path configuration needed — standard repo paths apply
@@ -121,6 +122,7 @@ Constraints:
 |-------|-----------------|----------------|
 | Instruction injection | Agent reads `AGENTS.md` and states the number of sections | Correct count (currently 8 sections) |
 | Skill discovery | Agent reads the assigned role skill file at its mapped path and states the role's mission | Skill file exists and mission text matches file content |
+| Repo skill catalog discovery | Agent lists `.agents/skills/*/SKILL.md` and identifies relevant skill(s) for task | Relevant skill inventory is visible and selection is justified |
 | Task discovery | Agent lists files matching `spec/TASKS/TASK_*.md` | Lists at least TASK_R1 and TASK_R2_R4 |
 | Permissions readiness | Agent runs baseline-safe commands for assigned role without new approvals | All baseline-safe checks pass; always-manual commands remain approval-gated |
 
@@ -133,6 +135,7 @@ Constraints:
 
 **Skill discovery:**
 - Agent resolves role to mapped path in this document and reads that `agents/<role>/SKILL.md` via Read tool
+- Agent discovers repo skills via `.agents/skills/*/SKILL.md` and applies explicit/implicit triggers as needed
 - Agent discovers task files via `Glob("spec/TASKS/TASK_*.md")`
 - Agent searches code via Grep tool for cross-referencing
 - Agent can spawn sub-agents (Task tool) for parallel exploration
@@ -153,6 +156,7 @@ Constraints:
 |-------|-----------------|----------------|
 | Instruction injection | Read `CLAUDE.md` and `AGENTS.md`; state the number of AGENTS.md sections | `CLAUDE.md` exists and is loaded; correct section count (currently 8) |
 | Skill discovery | `Read("<mapped role skill path>")`; state role's mission | Skill file exists and mission text matches file content |
+| Repo skill catalog discovery | `Glob(".agents/skills/*/SKILL.md")` and select relevant skill(s) | Relevant skill inventory is visible and selection is justified |
 | Task discovery | `Glob("spec/TASKS/TASK_*.md")` | Lists at least TASK_R1 and TASK_R2_R4 |
 | Permissions readiness | Run baseline-safe commands for assigned role in Bash tool | No new approvals for baseline-safe commands; always-manual commands still gated |
 

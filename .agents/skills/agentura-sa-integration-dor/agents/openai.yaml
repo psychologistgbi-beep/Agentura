@@ -1,0 +1,3 @@
+name: Agentura SA Integration DoR
+description: Build a complete integration Definition of Ready package before implementation.
+allow_implicit_invocation: true

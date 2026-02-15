@@ -27,6 +27,17 @@ codex_qa "Подготовь quality verdict по release scope."
 codex_sre "Проверь CI/release readiness и runbook риски."
 ```
 
+## Role sessions with explicit skills
+
+```bash
+codex-role sa --skill agentura-sa-integration-dor "Подготовь DoR для новой интеграции."
+codex-role ea --skill agentura-ea-yandex-live-run "Выполни live-run интеграции и оформи evidence."
+codex-role qa --skill agentura-qa-timezone-redaction "Проверь timezone и redaction в интеграционном потоке."
+codex-role sre --skill agentura-sre-hourly-sanity-alert "Проведи ops readiness и политику алертов."
+codex-role tl --skill agentura-tl-acceptance-ledger "Прими/отклони коммиты и обнови ledger."
+codex-role sm --skill agentura-sm-lane-sla-wip "Проверь SLA блокеров и WIP lane лимиты."
+```
+
 ## Non-interactive role runs
 
 ```bash
@@ -39,6 +50,8 @@ codex_qa_exec "Запусти quality gates и верни release verdict."
 ## Notes
 
 - Launcher injects role context using `AGENTS.md`, role `SKILL.md`, and `spec/templates/PREFLIGHT_STAMP_TEMPLATE.md`.
+- Project Codex skills catalog: `/Users/gaidabura/Agentura/.agents/skills`.
+- Skill inventory helper: `/Users/gaidabura/Agentura/scripts/codex-skills-check`.
 - `Technical Lead` has guarded push authority per `AGENTS.md` section 7.
 - For implementation tasks, role `SKILL.md` discovery (R2) is mandatory.
 - Team standards reference: `spec/TEAM_STANDARDS.md`.

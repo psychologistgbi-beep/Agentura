@@ -1,0 +1,3 @@
+name: Agentura QA Timezone Redaction
+description: Validate timezone correctness and secret redaction behavior for integration outputs.
+allow_implicit_invocation: true

@@ -1,0 +1,3 @@
+name: Agentura SRE Hourly Sanity Alert
+description: Enforce weekday sanity checks and alerting policy for recurring sync operations.
+allow_implicit_invocation: false

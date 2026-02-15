@@ -1,0 +1,3 @@
+name: Agentura Scrum Lane SLA WIP
+description: Enforce blocked-lane SLA and concurrent lane WIP policy in scrum flow.
+allow_implicit_invocation: true

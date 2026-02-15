@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  codex-role <role> [--exec] [task text...]
+  codex-role <role> [--exec] [--skill <skill-name>]... [task text...]
 
 Roles:
   tl  Technical Lead
@@ -21,6 +21,7 @@ Roles:
 Examples:
   codex-role tl "Согласуй план на ближайшие 3 задачи и выдай task briefs."
   codex-role ea --exec "Реализуй OPS-02 по spec/TASKS/..."
+  codex-role qa --skill agentura-qa-timezone-redaction "Проведи quality verdict по интеграции."
   codex-role sa "Подготовь требования и acceptance criteria для Sprint Goal."
 EOF
 }
@@ -47,48 +48,69 @@ if [[ "${1:-}" == "--exec" ]]; then
   shift
 fi
 
+EXTRA_SKILLS=()
+while [[ "${1:-}" == "--skill" ]]; do
+  if [[ $# -lt 2 ]]; then
+    echo "Missing value for --skill" >&2
+    usage
+    exit 1
+  fi
+  EXTRA_SKILLS+=("$2")
+  shift 2
+done
+
 TASK_TEXT="${*:-Proceed with the current user request.}"
 
 case "${ROLE_KEY}" in
   tl)
     ROLE_NAME="Technical Lead"
     SKILL_PATH="agents/technical_lead/SKILL.md"
+    ROLE_SKILL_HINTS=("\$agentura-tl-acceptance-ledger")
     ;;
   ca)
     ROLE_NAME="Chief Architect"
     SKILL_PATH="agents/chief_architect/SKILL.md"
+    ROLE_SKILL_HINTS=()
     ;;
   ea)
     ROLE_NAME="Executive Assistant"
     SKILL_PATH="agents/executive_assistant/SKILL.md"
+    ROLE_SKILL_HINTS=("\$agentura-ea-yandex-live-run")
     ;;
   dh)
     ROLE_NAME="Developer Helper"
     SKILL_PATH="agents/developer_helper/SKILL.md"
+    ROLE_SKILL_HINTS=()
     ;;
   bc)
     ROLE_NAME="Business Coach"
     SKILL_PATH="agents/business_coach/SKILL.md"
+    ROLE_SKILL_HINTS=()
     ;;
   sa)
     ROLE_NAME="System Analyst"
     SKILL_PATH="agents/system_analyst/SKILL.md"
+    ROLE_SKILL_HINTS=("\$agentura-sa-integration-dor")
     ;;
   po)
     ROLE_NAME="Product Owner"
     SKILL_PATH="agents/product_owner/SKILL.md"
+    ROLE_SKILL_HINTS=()
     ;;
   sm)
     ROLE_NAME="Scrum Master"
     SKILL_PATH="agents/scrum_master/SKILL.md"
+    ROLE_SKILL_HINTS=("\$agentura-sm-lane-sla-wip")
     ;;
   qa)
     ROLE_NAME="QA/SET"
     SKILL_PATH="agents/qa_set/SKILL.md"
+    ROLE_SKILL_HINTS=("\$agentura-qa-timezone-redaction")
     ;;
   sre)
     ROLE_NAME="DevOps/SRE"
     SKILL_PATH="agents/devops_sre/SKILL.md"
+    ROLE_SKILL_HINTS=("\$agentura-sre-hourly-sanity-alert")
     ;;
   *)
     echo "Unknown role: ${ROLE_KEY}" >&2
@@ -97,6 +119,23 @@ case "${ROLE_KEY}" in
     ;;
 esac
 
+normalize_skill_name() {
+  local raw="$1"
+  if [[ "${raw}" == \$* ]]; then
+    echo "${raw}"
+    return 0
+  fi
+  echo "\$${raw}"
+}
+
+EXTRA_SKILL_HINTS=()
+for item in "${EXTRA_SKILLS[@]}"; do
+  EXTRA_SKILL_HINTS+=("$(normalize_skill_name "${item}")")
+done
+
+ROLE_HINTS_TEXT="${ROLE_SKILL_HINTS[*]:-none}"
+EXTRA_HINTS_TEXT="${EXTRA_SKILL_HINTS[*]:-none}"
+
 PROMPT=$(cat <<EOF
 You are ${ROLE_NAME} for Agentura.
 
@@ -104,9 +143,16 @@ Load and follow strictly:
 - ${REPO_ROOT}/AGENTS.md
 - ${REPO_ROOT}/${SKILL_PATH}
 - ${REPO_ROOT}/spec/templates/PREFLIGHT_STAMP_TEMPLATE.md
+- Skills catalog root: ${REPO_ROOT}/.agents/skills
 
 Start with a filled PREFLIGHT STAMP for this role/session.
 Then execute the task within role boundaries and produce the required 7-section gate report.
+
+Skills policy:
+- Prefer explicit skill invocation from the repo catalog when relevant.
+- Suggested role skills: ${ROLE_HINTS_TEXT}
+- Extra requested skills: ${EXTRA_HINTS_TEXT}
+- If you skip a suggested skill, state why.
 
 Task:
 ${TASK_TEXT}
