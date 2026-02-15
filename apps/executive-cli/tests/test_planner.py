@@ -198,3 +198,41 @@ def test_no_now_prints_hint(tmp_path) -> None:
     assert result.selected_tasks == []
     assert result.didnt_fit_tasks == []
     assert result.no_now_hint_text == "No NOW tasks. Move NEXT -> NOW via execas task move <id> --status NOW."
+
+
+def test_plan_ignores_soft_deleted_busy_blocks(tmp_path) -> None:
+    engine = _create_engine(tmp_path)
+    plan_date = date(2026, 2, 20)
+
+    with Session(engine) as session:
+        _seed_defaults(session)
+        calendar = session.exec(select(Calendar).where(Calendar.slug == PRIMARY_CALENDAR_SLUG)).first()
+        assert calendar is not None
+        session.add(
+            BusyBlock(
+                calendar_id=calendar.id,
+                start_dt=dt_to_db(datetime(2026, 2, 20, 10, 0, tzinfo=MOSCOW_TZ)),
+                end_dt=dt_to_db(datetime(2026, 2, 20, 11, 0, tzinfo=MOSCOW_TZ)),
+                title="Active meeting",
+                is_deleted=0,
+            )
+        )
+        session.add(
+            BusyBlock(
+                calendar_id=calendar.id,
+                start_dt=dt_to_db(datetime(2026, 2, 20, 12, 0, tzinfo=MOSCOW_TZ)),
+                end_dt=dt_to_db(datetime(2026, 2, 20, 13, 0, tzinfo=MOSCOW_TZ)),
+                title="Deleted remote meeting",
+                source="yandex_caldav",
+                external_id="uid-1",
+                is_deleted=1,
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        result = build_and_persist_day_plan(session, plan_date=plan_date, variant="minimal")
+
+    busy_labels = [block.label for block in result.blocks if block.type == "busy"]
+    assert "Active meeting" in busy_labels
+    assert not any("Deleted remote meeting" in label for label in busy_labels)

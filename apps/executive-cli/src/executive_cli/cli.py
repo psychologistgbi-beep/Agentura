@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from executive_cli.busy_service import merge_busy_blocks
 from executive_cli.config import list_settings, upsert_setting
+from executive_cli.connectors.caldav import CalDavConnector, CalendarConnectorError
 from executive_cli.db import (
     DEFAULT_SETTINGS,
     PRIMARY_CALENDAR_SLUG,
@@ -31,6 +32,7 @@ from executive_cli.models import (
 )
 from executive_cli.planner import VALID_VARIANTS, build_and_persist_day_plan
 from executive_cli.review import build_and_persist_weekly_review, validate_week
+from executive_cli.sync_service import sync_calendar_primary
 from executive_cli.timeutil import dt_to_db, parse_local_dt
 
 app = typer.Typer(
@@ -40,6 +42,7 @@ app = typer.Typer(
 )
 area_app = typer.Typer(help="Manage areas (reference data).")
 busy_app = typer.Typer(help="Manage busy blocks in the primary calendar.")
+calendar_app = typer.Typer(help="Sync external calendar providers.")
 commitment_app = typer.Typer(help="Manage year commitments.")
 config_app = typer.Typer(help="Manage assistant settings.")
 decision_app = typer.Typer(help="Manage decisions (searchable via FTS).")
@@ -50,6 +53,7 @@ plan_app = typer.Typer(help="Manage deterministic day planning.")
 review_app = typer.Typer(help="Weekly review reports.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
+app.add_typer(calendar_app, name="calendar")
 app.add_typer(commitment_app, name="commitment")
 app.add_typer(config_app, name="config")
 app.add_typer(decision_app, name="decision")
@@ -157,6 +161,7 @@ def busy_list(
         rows = session.exec(
             select(BusyBlock)
             .where(BusyBlock.calendar_id == calendar.id)
+            .where(BusyBlock.is_deleted == 0)
             .where(BusyBlock.end_dt > dt_to_db(day_start))
             .where(BusyBlock.start_dt < dt_to_db(day_end))
             .order_by(BusyBlock.start_dt, BusyBlock.id)
@@ -170,6 +175,31 @@ def busy_list(
     print(f"[bold]Busy blocks for {local_date.isoformat()} ({timezone_name}):[/bold]")
     for item in merged:
         print(f"- {item.start_dt.strftime('%H:%M')}–{item.end_dt.strftime('%H:%M')} | {item.title}")
+
+
+@calendar_app.command("sync")
+def calendar_sync() -> None:
+    """Incremental sync from CalDAV into busy blocks with provenance tracking."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        try:
+            connector = CalDavConnector.from_env()
+            result = sync_calendar_primary(session, connector=connector)
+        except CalendarConnectorError as exc:
+            print(f"[red]Calendar sync failed:[/red] {exc}")
+            print(
+                "Fallback: use manual input via "
+                "execas busy add --date YYYY-MM-DD --start HH:MM --end HH:MM --title \"...\""
+            )
+            raise typer.Exit(code=1) from exc
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    print(
+        "[green]Calendar sync complete.[/green] "
+        f"inserted={result.inserted} updated={result.updated} "
+        f"skipped={result.skipped} soft_deleted={result.soft_deleted} "
+        f"cursor_kind={result.cursor_kind or '-'} cursor={result.cursor or '-'}"
+    )
 
 
 @config_app.command("show")

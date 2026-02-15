@@ -283,6 +283,7 @@ def _load_busy_blocks(
     busy_rows = session.exec(
         select(BusyBlock)
         .where(BusyBlock.calendar_id == calendar.id)
+        .where(BusyBlock.is_deleted == 0)
         .where(BusyBlock.end_dt > dt_to_db(day_start))
         .where(BusyBlock.start_dt < dt_to_db(day_end))
         .order_by(BusyBlock.start_dt, BusyBlock.id)
