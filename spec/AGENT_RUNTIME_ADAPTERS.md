@@ -52,6 +52,16 @@ This document describes how each supported LLM runtime discovers and loads the A
 - Confirm AGENTS.md authority line cited in role confirmation matches the claimed role
 - Check commit messages include role context (e.g., "Chief Architect" or task ID)
 
+**Preflight smoke-check (run before implementation tasks):**
+
+| Check | Command / action | Pass condition |
+|-------|-----------------|----------------|
+| Instruction injection | Agent reads `AGENTS.md` and states the number of sections | Correct count (currently 8 sections) |
+| Skill discovery | Agent reads `agents/chief_architect/SKILL.md` (or assigned role's SKILL.md) and states the role's mission | Mission text matches file content |
+| Task discovery | Agent lists files matching `spec/TASKS/TASK_*.md` | Lists at least TASK_R1 and TASK_R2_R4 |
+| Quality gate dry-run | Agent runs `cd apps/executive-cli && uv run pytest -q` | Exit code 0, tests pass |
+| Gate report format | Agent produces a stub 7-section report with placeholder content | All 7 section headers present |
+
 ### Claude (Anthropic — Claude Code)
 
 **Instruction injection points:**
@@ -74,6 +84,16 @@ This document describes how each supported LLM runtime discovers and loads the A
 - Same 7-section gate report as any other runtime
 - Co-Authored-By trailer in commits identifies the model
 - Conversation transcript preserves the full chain of reads → analysis → edits → commit
+
+**Preflight smoke-check (run before implementation tasks):**
+
+| Check | Command / action | Pass condition |
+|-------|-----------------|----------------|
+| Instruction injection | Read `CLAUDE.md` and `AGENTS.md`; state the number of AGENTS.md sections | `CLAUDE.md` exists and is loaded; correct section count (currently 8) |
+| Skill discovery | `Read("agents/chief_architect/SKILL.md")` or assigned role; state role's mission | Mission text matches file content |
+| Task discovery | `Glob("spec/TASKS/TASK_*.md")` | Lists at least TASK_R1 and TASK_R2_R4 |
+| Quality gate dry-run | `Bash("cd apps/executive-cli && uv run pytest -q")` | Exit code 0, all tests pass |
+| Gate report format | Produce a stub 7-section report with placeholder content | All 7 section headers present |
 
 ### Generic Fallback (other LLMs)
 
@@ -124,3 +144,23 @@ When the same task is executed by different runtimes (e.g., architecture review 
 5. **Compatible artifacts:** Files created by one runtime must be readable and editable by another (no runtime-specific formats).
 
 **Anti-pattern:** Accepting a deliverable from Runtime A with lower scrutiny than Runtime B. The core policy layer does not distinguish between runtimes — only the output quality matters.
+
+---
+
+## Adapter Readiness Criteria
+
+A runtime adapter is considered **ready** (pass) when all of the following hold:
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| R1 | Agent can read `AGENTS.md` and correctly identify its sections | Preflight check: instruction injection |
+| R2 | Agent can locate and read the assigned role's `SKILL.md` | Preflight check: skill discovery |
+| R3 | Agent can discover task files in `spec/TASKS/` | Preflight check: task discovery |
+| R4 | Agent can execute quality gates (`uv run pytest`) and report results | Preflight check: quality gate dry-run |
+| R5 | Agent can produce a 7-section gate report | Preflight check: gate report format |
+| R6 | Agent respects authority boundaries from AGENTS.md section 2 | Verified in gate report: role confirmation section |
+| R7 | Agent does not store credentials in repo or database | Verified by diff review |
+
+**Fail = not ready to execute.** If any criterion fails, the runtime adapter is not considered operational for implementation tasks. The agent must resolve the failure before proceeding, or the user must switch to a runtime that passes.
+
+**Preflight is mandatory.** Every implementation task session must begin with the runtime's preflight smoke-check (defined per-adapter above). Architecture-only tasks (docs, ADRs) may skip quality gate dry-run (R4) but must pass all other criteria.

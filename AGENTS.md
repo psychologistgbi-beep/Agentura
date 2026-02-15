@@ -191,7 +191,10 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 6. User conversation — ad-hoc (must not contradict sources 1–3 without explicit override)
 
 ### Verification gate (runtime-agnostic)
-Every architecture-level deliverable must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. This gate is **mandatory for all runtimes** — see `spec/AGENT_RUNTIME.md` section 4.
+Every task deliverable — architecture **and** development — must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. This gate is **mandatory for all runtimes** — see `spec/AGENT_RUNTIME.md` section 4.
+
+### Runtime preflight (mandatory before implementation)
+Before starting any implementation task, the agent must pass the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md`. A task session without successful preflight is considered "not ready to execute". See `spec/AGENT_RUNTIME.md` section 5.
 
 ### Runtime-neutral acceptance
 Task acceptance is judged by the core policy layer (quality gates, ADR compliance, authority boundaries), never by which LLM produced the deliverable.

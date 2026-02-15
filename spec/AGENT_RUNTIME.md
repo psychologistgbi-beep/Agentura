@@ -109,7 +109,7 @@ These paths are part of the core policy layer. Each runtime adapter describes ho
 
 ## 4. Agent Verification Gate (runtime-agnostic)
 
-When an agent claims to operate in an architectural role (Chief Architect, EA, etc.), its output must include verifiable markers that demonstrate it actually followed the role's constraints. This verification gate is **mandatory for all runtimes** — the same 7-section report structure applies whether the agent runs on Codex, Claude, or any other LLM.
+When an agent operates in any role (Chief Architect, EA, Developer Helper, etc.) on an architecture or development task, its output must include verifiable markers that demonstrate it actually followed the role's constraints. This verification gate is **mandatory for all runtimes and all task types** (architecture and development) — the same 7-section report structure applies whether the agent runs on Codex, Claude, or any other LLM.
 
 ### Required sections in a gate report
 
@@ -150,7 +150,28 @@ This checklist is applied identically regardless of which runtime produced the d
 
 ---
 
-## 5. Trust Boundaries for Agent Operations
+## 5. Runtime Preflight (mandatory before implementation)
+
+Before an agent begins any implementation task (code, migrations, CLI commands), it must pass the runtime preflight smoke-check defined in `spec/AGENT_RUNTIME_ADAPTERS.md` for its specific runtime.
+
+### What preflight verifies
+1. **Instruction injection** — the agent has loaded AGENTS.md (and CLAUDE.md for Claude runtime).
+2. **Skill discovery** — the agent can read the assigned role's SKILL.md.
+3. **Task discovery** — the agent can find task files in `spec/TASKS/`.
+4. **Quality gate execution** — the agent can run `uv run pytest` and report results.
+5. **Gate report format** — the agent can produce the 7-section verification gate report.
+
+### When preflight is required
+- **Implementation tasks** (code, migrations, tests): all 5 checks required.
+- **Architecture tasks** (docs, ADRs, process): checks 1–3 and 5 required; check 4 (quality gate dry-run) may be skipped if no code is involved.
+- **Skipping preflight** makes the deliverable "not ready to execute" — the human reviewer should request preflight before accepting.
+
+### Preflight is per-session
+Preflight runs once at the start of a task session. If the agent continues in the same session, preflight does not need to repeat. A new session (e.g., context reset, new conversation) requires a new preflight.
+
+---
+
+## 6. Trust Boundaries for Agent Operations
 
 ```
 [User] <-- conversation --> [LLM Agent (any runtime)]
@@ -188,7 +209,7 @@ This checklist is applied identically regardless of which runtime produced the d
 
 ---
 
-## 6. Operational Invariants
+## 7. Operational Invariants
 
 These invariants hold regardless of which agent or runtime is operating:
 
@@ -197,12 +218,12 @@ These invariants hold regardless of which agent or runtime is operating:
 3. **Quality gates are mandatory:** Every commit must pass `uv run pytest` and coverage gate (AGENTS.md section 4).
 4. **Secrets never in repo:** Credentials in env vars only (AGENTS.md section 5).
 5. **Atomic commits:** One commit = one logical change (AGENTS.md section 6).
-6. **Explicit ADR status:** Every architecture deliverable states ADR status (this document, section 4).
+6. **Explicit ADR status:** Every architecture deliverable states ADR status (section 4 of this document).
 7. **Runtime-neutral acceptance:** Task acceptance is judged by core policy, not by which LLM produced the output.
 
 ---
 
-## 7. Glossary
+## 8. Glossary
 
 | Term | Definition |
 |------|-----------|
@@ -212,3 +233,4 @@ These invariants hold regardless of which agent or runtime is operating:
 | **Verification gate** | The 7-section structured report that proves an agent operated within its assigned role (section 4 of this document) |
 | **Handoff contract** | The "Implementation handoff" section of a gate report — defines what the next agent can do and what requires further approval |
 | **Core policy layer** | The runtime-agnostic set of rules (AGENTS.md, ADRs, skills, quality gates) that all agents must follow |
+| **Runtime preflight** | A per-session smoke-check that verifies the runtime adapter can access instructions, skills, tasks, quality gates, and produce a gate report (section 5) |
