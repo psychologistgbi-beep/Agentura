@@ -173,7 +173,14 @@ No broken imports, no syntax errors. The test suite implicitly validates this.
 
 ## 7. Agent Runtime & Verification
 
-Full specification: `spec/AGENT_RUNTIME.md`
+Architecture is vendor-neutral — same rules apply regardless of which LLM runtime executes an agent.
+
+- **Core policy layer** (this file + ADRs + skills + quality gates): `spec/AGENT_RUNTIME.md`
+- **Runtime adapters** (per-LLM discovery/injection details): `spec/AGENT_RUNTIME_ADAPTERS.md`
+
+### Two-layer model
+1. **Core policy layer** — roles, authority, ADRs, quality gates, security. Identical for all runtimes.
+2. **Runtime adapter layer** — how each LLM (Codex, Claude, other) discovers and loads the core policy. See `spec/AGENT_RUNTIME_ADAPTERS.md`.
 
 ### Instruction sources (priority order)
 1. `AGENTS.md` (this file) — operating model, authority, security
@@ -183,8 +190,11 @@ Full specification: `spec/AGENT_RUNTIME.md`
 5. `spec/integrations/*.md` — integration plans
 6. User conversation — ad-hoc (must not contradict sources 1–3 without explicit override)
 
-### Role verification
-Every architecture-level deliverable must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. See `spec/AGENT_RUNTIME.md` section 3 for the full protocol.
+### Verification gate (runtime-agnostic)
+Every architecture-level deliverable must include a structured gate report with 7 sections: role confirmation, decisions, artifacts, traceability, implementation handoff, risks, ADR status. This gate is **mandatory for all runtimes** — see `spec/AGENT_RUNTIME.md` section 4.
+
+### Runtime-neutral acceptance
+Task acceptance is judged by the core policy layer (quality gates, ADR compliance, authority boundaries), never by which LLM produced the deliverable.
 
 ### Trust boundary
 Agents can read/write within their authority scope and run quality gates. Agents must get human approval for: pushing to remote, modifying AGENTS.md, amending ADRs, accessing external services with real credentials, or any destructive operation.
