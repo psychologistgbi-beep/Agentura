@@ -17,7 +17,7 @@ This document describes how each supported LLM runtime discovers and loads the A
 | Aspect | Codex (OpenAI) | Claude (Anthropic) | Generic Runtime (manual context injection) |
 |--------|---------------|-------------------|-----------------|
 | **Instruction injection** | `AGENTS.md` at repo root is auto-loaded as system context; task prompt includes role + file refs | `CLAUDE.md` at repo root for project instructions; conversation system prompt for role assignment | User pastes relevant AGENTS.md sections + SKILL.md into system prompt manually |
-| **Skill discovery paths** | Reads `agents/<role>/SKILL.md` via file access tools; reads repo skills from `.agents/skills/*/SKILL.md`; scans `spec/TASKS/` for task files | Reads `agents/<role>/SKILL.md` via Read tool; reads repo skills from `.agents/skills/*/SKILL.md`; scans `spec/TASKS/` via Glob tool | User provides file contents in prompt or attaches files |
+| **Skill discovery paths** | Reads `agents/<role>/SKILL.md` via file access tools; reads repo skills from `.agents/skills/*/SKILL.md`; scans `spec/TASKS/` and `spec/frameworks/` for role-required context files | Reads `agents/<role>/SKILL.md` via Read tool; reads repo skills from `.agents/skills/*/SKILL.md`; scans `spec/TASKS/` and `spec/frameworks/` via Glob tool | User provides file contents in prompt or attaches files |
 | **Quality gate execution** | Runs `uv run pytest` via sandbox shell; checks exit code | Runs `uv run pytest` via Bash tool; checks output | User runs gates manually and reports results |
 | **Git operations** | Sandbox shell with git access; commits within sandbox | Bash tool with git access; commits with Co-Authored-By trailer | User commits manually after review |
 | **File editing** | Applies patches/edits via code editing tools | Uses Edit/Write tools for file modifications | User applies changes manually |
@@ -102,6 +102,7 @@ Constraints:
 - Agent resolves role to mapped path in this document and reads that `agents/<role>/SKILL.md` file
 - Agent discovers repo skills in `.agents/skills/*/SKILL.md` and applies explicit/implicit triggers as needed
 - Agent reads `spec/TASKS/TASK_*.md` for task specifications
+- For System Analyst planning sessions, agent reads `spec/frameworks/FPF_REFERENCE.md`
 - Agent reads `spec/ARCH_DECISIONS.md` for ADR context
 - No special path configuration needed — standard repo paths apply
 
@@ -120,11 +121,12 @@ Constraints:
 
 | Check | Command / action | Pass condition |
 |-------|-----------------|----------------|
-| Instruction injection | Agent reads `AGENTS.md` and states the number of sections | Correct count (currently 8 sections) |
+| Instruction injection | Agent reads `AGENTS.md` and states the number of sections | Correct count (currently 9 sections) |
 | Skill discovery | Agent reads the assigned role skill file at its mapped path and states the role's mission | Skill file exists and mission text matches file content |
 | Repo skill catalog discovery | Agent lists `.agents/skills/*/SKILL.md` and identifies relevant skill(s) for task | Relevant skill inventory is visible and selection is justified |
 | Task discovery | Agent lists files matching `spec/TASKS/TASK_*.md` | Lists at least TASK_R1 and TASK_R2_R4 |
 | Permissions readiness | Agent runs baseline-safe commands for assigned role without new approvals | All baseline-safe checks pass; always-manual commands remain approval-gated |
+| Framework readiness (System Analyst planning only) | Agent reads `spec/frameworks/FPF_REFERENCE.md` and states required FPF artifacts | File exists and artifact list matches the baseline |
 
 ### Claude (Anthropic — Claude Code)
 
@@ -137,6 +139,7 @@ Constraints:
 - Agent resolves role to mapped path in this document and reads that `agents/<role>/SKILL.md` via Read tool
 - Agent discovers repo skills via `.agents/skills/*/SKILL.md` and applies explicit/implicit triggers as needed
 - Agent discovers task files via `Glob("spec/TASKS/TASK_*.md")`
+- For System Analyst planning sessions, agent reads `spec/frameworks/FPF_REFERENCE.md` via Read tool
 - Agent searches code via Grep tool for cross-referencing
 - Agent can spawn sub-agents (Task tool) for parallel exploration
 
@@ -154,11 +157,12 @@ Constraints:
 
 | Check | Command / action | Pass condition |
 |-------|-----------------|----------------|
-| Instruction injection | Read `CLAUDE.md` and `AGENTS.md`; state the number of AGENTS.md sections | `CLAUDE.md` exists and is loaded; correct section count (currently 8) |
+| Instruction injection | Read `CLAUDE.md` and `AGENTS.md`; state the number of AGENTS.md sections | `CLAUDE.md` exists and is loaded; correct section count (currently 9) |
 | Skill discovery | `Read("<mapped role skill path>")`; state role's mission | Skill file exists and mission text matches file content |
 | Repo skill catalog discovery | `Glob(".agents/skills/*/SKILL.md")` and select relevant skill(s) | Relevant skill inventory is visible and selection is justified |
 | Task discovery | `Glob("spec/TASKS/TASK_*.md")` | Lists at least TASK_R1 and TASK_R2_R4 |
 | Permissions readiness | Run baseline-safe commands for assigned role in Bash tool | No new approvals for baseline-safe commands; always-manual commands still gated |
+| Framework readiness (System Analyst planning only) | `Read("spec/frameworks/FPF_REFERENCE.md")`; state required FPF artifacts | File exists and artifact list matches the baseline |
 
 ### Generic Runtime (other LLMs)
 
@@ -227,6 +231,7 @@ A runtime adapter is considered **ready** (pass) when all of the following hold:
 | R6 | Agent can produce a 7-section gate report | Verified in final deliverable |
 | R7 | Agent does not store credentials in repo or database | Verified by diff review |
 | R8 | Quality gates pass before commit/merge (`pytest`, coverage, migration integrity when applicable) | Verified in implementation handoff / CI output |
+| R9 | For System Analyst planning sessions, agent loads FPF baseline from `spec/frameworks/FPF_REFERENCE.md` | Verified in preflight and gate report traceability |
 
 **Fail = not ready to execute.** If any criterion fails, the runtime adapter is not considered operational for implementation tasks. The agent must resolve the failure before proceeding, or the user must switch to a runtime that passes.
 - Missing/unreadable role SKILL file (R2) is a hard fail.

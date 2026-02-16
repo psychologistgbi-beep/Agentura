@@ -21,9 +21,13 @@ Timestamp: <YYYY-MM-DD HH:MM TZ>
 - Baseline-safe commands run without new approvals
 - Always-manual actions remain approval-gated
 
+5) Framework readiness (System Analyst planning only): <PASS|SKIP|FAIL>
+- Read `spec/frameworks/FPF_REFERENCE.md`
+
 Hard-fail policy:
 - Missing/unreadable role SKILL file => NOT READY TO EXECUTE
 - Implementation AGENTS.md-only fallback => NOT READY TO EXECUTE
+- System Analyst planning session without readable FPF baseline file => NOT READY TO EXECUTE
 
 Preflight status: <READY TO EXECUTE|NOT READY TO EXECUTE>
 ```

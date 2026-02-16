@@ -108,6 +108,7 @@ Profile: `agents/business_coach/SKILL.md`
 
 Responsibilities:
 - Convert business goals into structured requirements and scoped stories.
+- Use FPF-first framing for plan preparation (problem frame, assumptions, options, evidence).
 - Define acceptance criteria and non-functional constraints with Product Owner.
 - Maintain traceability between backlog items, specs, tasks, and delivered artifacts.
 - Validate backlog items against Definition of Ready before implementation starts.
@@ -334,8 +335,9 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 2. `agents/<role>/SKILL.md` — per-role profile and checklists
 3. `spec/TECH_SPEC.md`, `spec/ARCH_DECISIONS.md`, `spec/ACCEPTANCE.md` — requirements and ADRs
 4. `spec/TASKS/TASK_*.md` — scoped task instructions
-5. `spec/integrations/*.md` — integration plans
-6. User conversation — ad-hoc (must not contradict sources 1–3 without explicit override)
+5. `spec/frameworks/*.md` — role-specific planning frameworks (for example FPF baseline for System Analyst)
+6. `spec/integrations/*.md` — integration plans
+7. User conversation — ad-hoc (must not contradict sources 1–3 without explicit override)
 
 ### Role-to-skill mapping (mandatory)
 | Role | Required skill path |
@@ -363,6 +365,7 @@ Minimal required checks:
 2. Skill discovery R2 (assigned role loads mapped `agents/<role>/SKILL.md`)
 3. Task discovery (`spec/TASKS/TASK_*.md` is discoverable)
 4. Permissions readiness (baseline-safe commands run without new approvals)
+5. Framework readiness for System Analyst planning sessions (`spec/frameworks/FPF_REFERENCE.md` is readable)
 
 Hard fail rules:
 - Missing/unreadable role SKILL file is `not ready to execute`.

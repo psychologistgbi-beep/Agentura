@@ -61,8 +61,9 @@ Agents receive instructions from these sources, in decreasing priority:
 | 2 | **Agent skill files** | `agents/<role>/SKILL.md` | Per-role profile: mission, decision rules, checklists |
 | 3 | **Spec documents** | `spec/TECH_SPEC.md`, `spec/ARCH_DECISIONS.md`, `spec/ACCEPTANCE.md` | Requirements, ADRs, acceptance criteria |
 | 4 | **Task files** | `spec/TASKS/TASK_*.md` | Scoped implementation instructions with acceptance checks |
-| 5 | **Integration plans** | `spec/integrations/*.md` | Per-service data flow, security constraints, failure modes |
-| 6 | **User instructions** | Conversation context | Ad-hoc directives (must not contradict sources 1–3 without explicit override) |
+| 5 | **Framework baselines** | `spec/frameworks/*.md` | Role-specific planning frameworks (for example FPF for System Analyst) |
+| 6 | **Integration plans** | `spec/integrations/*.md` | Per-service data flow, security constraints, failure modes |
+| 7 | **User instructions** | Conversation context | Ad-hoc directives (must not contradict sources 1–3 without explicit override) |
 
 **Conflict resolution:** Higher-priority source wins. If a user instruction contradicts AGENTS.md or an ADR, the agent must flag the conflict and request explicit override authorization before proceeding. This rule applies to all runtimes equally.
 
@@ -104,6 +105,8 @@ Agent skill definitions are stored in the repository under a predictable path st
 └── spec/
     ├── AGENT_RUNTIME.md               # This file (core policy + layer model)
     ├── AGENT_RUNTIME_ADAPTERS.md      # Per-runtime adapter details
+    ├── frameworks/
+    │   └── FPF_REFERENCE.md           # System Analyst planning framework baseline
     └── templates/
         ├── ADR_TEMPLATE.md
         ├── INTEGRATION_TEMPLATE.md
@@ -207,6 +210,7 @@ Use the short session-start template: `spec/templates/PREFLIGHT_STAMP_TEMPLATE.m
 3. **Repo skill catalog discovery** — the agent can discover `.agents/skills/*/SKILL.md` and select relevant skill(s).
 4. **Task discovery** — the agent can find task files in `spec/TASKS/`.
 5. **Permissions readiness** — safe baseline commands for the assigned role execute without new approval prompts.
+6. **Framework readiness (System Analyst planning only)** — `spec/frameworks/FPF_REFERENCE.md` is discoverable and loaded.
 
 Quality gates remain mandatory, but are validated before commit/merge (AGENTS.md section 4), not in session-start preflight.
 
@@ -223,6 +227,7 @@ Preflight is incomplete until permissions readiness is explicitly evaluated.
 - Runtime configuration would auto-allow a command from the always-manual list.
 - Assigned role skill file is missing or unreadable at the mapped path.
 - For implementation tasks, runtime attempts to continue using AGENTS.md only without loading the assigned role SKILL file.
+- For System Analyst planning sessions, FPF baseline file is missing/unreadable (`spec/frameworks/FPF_REFERENCE.md`).
 
 ### When preflight is required
 - **Implementation tasks** (code, migrations, tests): all 4 checks required.
