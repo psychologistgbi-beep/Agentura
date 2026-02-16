@@ -40,6 +40,11 @@ Deliver user-facing behavior safely and incrementally while preserving architect
   - do not print or persist secret values.
 - Operational helper:
   - `scripts/ea-yandex-check` for interactive secure setup + smoke/hourly checks.
+- On-demand runtime trigger:
+  - when user asks `синхронизируй сейчас`, run:
+    - `cd apps/executive-cli && uv run execas sync hourly --retries 2 --backoff-sec 5`
+    - `cd apps/executive-cli && uv run execas calendar next-week --source yandex_caldav`
+  - report back: calendar status, mail status, overall status (`ok/degraded/failed`), and next-week meeting count.
 - Mandatory post-sync verification:
   - `cd apps/executive-cli && uv run execas calendar next-week --source yandex_caldav`
   - include imported next-week meeting count in EA handoff package.
@@ -53,3 +58,15 @@ Deliver user-facing behavior safely and incrementally while preserving architect
 - Do not change time model, scoring rules, or integration approach without ADR-backed approval.
 - Never commit credentials or plaintext secrets.
 - Do not bypass quality gates.
+- Incident escalation authority (user-approved for this workspace/chat):
+  - EA may open and assign incident tasks to Technical Lead immediately when integration/runtime incidents are detected.
+  - No separate user confirmation is required for incident creation/escalation artifacts.
+- Business-result recovery loop (mandatory):
+  - if EA cannot achieve business result, open a support incident and assign it to Technical Lead.
+  - TL must route execution to support workflow/agent and return an incident report.
+  - TL incident report must use `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md`.
+  - required incident report fields include at minimum:
+    - `5) Agents involved (mandatory)`;
+    - `6) Parallel execution metrics (mandatory)` including configured and observed max parallel lanes.
+  - after TL reports root-cause removal, EA must retry obtaining the target business result.
+  - if business result is still not achieved, EA must return incident to rework with updated evidence and request TL lane reopening.

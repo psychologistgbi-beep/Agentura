@@ -53,9 +53,15 @@ def test_fetch_events_short_circuits_when_ctag_unchanged(monkeypatch) -> None:
         username="alice",
         password="secret",
     )
-    monkeypatch.setattr(CalDavConnector, "_fetch_collection_props", lambda self: {"ctag": "ctag-1"})
+    monkeypatch.setattr(CalDavConnector, "_resolve_collection_url", lambda self: self.base_url)
+    monkeypatch.setattr(
+        CalDavConnector,
+        "_fetch_collection_props",
+        lambda self, *, collection_url=None: {"ctag": "ctag-1"},
+    )
 
-    def _unexpected(self, *, timezone_name: str):
+    def _unexpected(self, *, timezone_name: str, collection_url: str | None = None):
+        del collection_url
         raise AssertionError(f"full snapshot should not be called for {timezone_name}")
 
     monkeypatch.setattr(CalDavConnector, "_fetch_full_snapshot", _unexpected)
@@ -79,11 +85,16 @@ def test_fetch_events_returns_full_snapshot_when_needed(monkeypatch) -> None:
         username="alice",
         password="secret",
     )
-    monkeypatch.setattr(CalDavConnector, "_fetch_collection_props", lambda self: {"ctag": "ctag-2"})
+    monkeypatch.setattr(CalDavConnector, "_resolve_collection_url", lambda self: self.base_url)
+    monkeypatch.setattr(
+        CalDavConnector,
+        "_fetch_collection_props",
+        lambda self, *, collection_url=None: {"ctag": "ctag-2"},
+    )
     monkeypatch.setattr(
         CalDavConnector,
         "_fetch_full_snapshot",
-        lambda self, *, timezone_name: [
+        lambda self, *, timezone_name, collection_url=None: [
             RemoteCalendarEvent(
                 external_id="uid-1",
                 start_dt=datetime(2026, 2, 20, 10, 0, tzinfo=timezone.utc),
@@ -105,6 +116,127 @@ def test_fetch_events_returns_full_snapshot_when_needed(monkeypatch) -> None:
     assert batch.cursor == "ctag-2"
     assert batch.cursor_kind == "ctag"
     assert batch.full_snapshot is True
+
+
+def test_fetch_events_resolves_collection_from_root_endpoint(monkeypatch) -> None:
+    connector = CalDavConnector(
+        base_url="https://caldav.yandex.ru",
+        username="alice",
+        password="secret",
+    )
+    expected_collection_url = "https://caldav.yandex.ru/calendars/alice/events/"
+
+    monkeypatch.setattr(
+        CalDavConnector,
+        "_discover_calendar_home_url",
+        lambda self, root_url: "https://caldav.yandex.ru/calendars/alice/",
+    )
+    monkeypatch.setattr(
+        CalDavConnector,
+        "_discover_primary_collection_url",
+        lambda self, calendar_home_url: expected_collection_url,
+    )
+
+    observed_collection_urls: list[str] = []
+
+    def _props(self, *, collection_url=None):
+        assert collection_url is not None
+        observed_collection_urls.append(collection_url)
+        return {"ctag": "ctag-9"}
+
+    def _snapshot(self, *, timezone_name: str, collection_url: str | None = None):
+        del timezone_name
+        assert collection_url is not None
+        observed_collection_urls.append(collection_url)
+        return []
+
+    monkeypatch.setattr(CalDavConnector, "_fetch_collection_props", _props)
+    monkeypatch.setattr(CalDavConnector, "_fetch_full_snapshot", _snapshot)
+
+    batch = connector.fetch_events(
+        calendar_slug="primary",
+        cursor="ctag-old",
+        cursor_kind="ctag",
+        timezone_name="Europe/Moscow",
+    )
+
+    assert batch.full_snapshot is True
+    assert observed_collection_urls == [expected_collection_url, expected_collection_url]
+
+
+def test_resolve_collection_url_discovers_events_collection(monkeypatch) -> None:
+    connector = CalDavConnector(
+        base_url="https://caldav.yandex.ru",
+        username="alice",
+        password="secret",
+    )
+    discovery_payload = b"""<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:propstat>
+      <d:status>HTTP/1.1 200 OK</d:status>
+      <d:prop>
+        <d:current-user-principal>
+          <d:href>/principals/users/alice/</d:href>
+        </d:current-user-principal>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+</d:multistatus>
+"""
+    principal_payload = b"""<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:propstat>
+      <d:status>HTTP/1.1 200 OK</d:status>
+      <d:prop>
+        <c:calendar-home-set>
+          <d:href>/calendars/alice/</d:href>
+        </c:calendar-home-set>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+</d:multistatus>
+"""
+    calendars_payload = b"""<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/calendars/alice/work/</d:href>
+    <d:propstat>
+      <d:status>HTTP/1.1 200 OK</d:status>
+      <d:prop>
+        <d:resourcetype><d:collection /><c:calendar /></d:resourcetype>
+        <d:displayname>Work</d:displayname>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/calendars/alice/events/</d:href>
+    <d:propstat>
+      <d:status>HTTP/1.1 200 OK</d:status>
+      <d:prop>
+        <d:resourcetype><d:collection /><c:calendar /></d:resourcetype>
+        <d:displayname>Primary</d:displayname>
+      </d:prop>
+    </d:propstat>
+  </d:response>
+</d:multistatus>
+"""
+
+    def _request(self, url: str, *, method: str, depth: str, body: str):
+        del method, body
+        if url == "https://caldav.yandex.ru" and depth == "0":
+            return discovery_payload
+        if url == "https://caldav.yandex.ru/principals/users/alice/" and depth == "0":
+            return principal_payload
+        if url == "https://caldav.yandex.ru/calendars/alice/" and depth == "1":
+            return calendars_payload
+        raise AssertionError(f"Unexpected request: {url} depth={depth}")
+
+    monkeypatch.setattr(CalDavConnector, "_request_xml_url", _request)
+
+    collection_url = connector._resolve_collection_url()
+    assert collection_url == "https://caldav.yandex.ru/calendars/alice/events/"
 
 
 def test_fetch_collection_props_parses_ctag_and_sync_token(monkeypatch) -> None:

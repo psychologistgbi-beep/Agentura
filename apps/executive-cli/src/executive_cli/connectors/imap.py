@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from datetime import date
 from datetime import timezone
 from email.header import decode_header, make_header
 from email.parser import BytesParser
@@ -43,6 +44,7 @@ class MailConnector(Protocol):
         mailbox: str,
         cursor_uidvalidity: int | None,
         cursor_uidnext: int | None,
+        received_since: date | None = None,
     ) -> MailSyncBatch: ...
 
 
@@ -87,6 +89,7 @@ class ImapConnector:
         mailbox: str,
         cursor_uidvalidity: int | None,
         cursor_uidnext: int | None,
+        received_since: date | None = None,
     ) -> MailSyncBatch:
         try:
             client = imaplib.IMAP4_SSL(self.host, self.port, timeout=self.timeout_sec)
@@ -107,7 +110,7 @@ class ImapConnector:
             uidvalidity, uidnext = self._read_uid_state(client, mailbox)
             full_resync = cursor_uidvalidity is None or cursor_uidvalidity != uidvalidity
             since_uid = None if full_resync else cursor_uidnext
-            uids = self._search_uids(client, since_uid=since_uid)
+            uids = self._search_uids(client, since_uid=since_uid, received_since=received_since)
             messages = [self._fetch_header(client, uid) for uid in uids]
 
             return MailSyncBatch(
@@ -139,8 +142,17 @@ class ImapConnector:
             raise MailConnectorError("IMAP mailbox status response is invalid.")
         return uidvalidity, uidnext
 
-    def _search_uids(self, client: imaplib.IMAP4_SSL, *, since_uid: int | None) -> list[int]:
-        criteria = "1:*" if since_uid is None else f"{max(since_uid, 1)}:*"
+    def _search_uids(
+        self,
+        client: imaplib.IMAP4_SSL,
+        *,
+        since_uid: int | None,
+        received_since: date | None,
+    ) -> list[int]:
+        criteria_parts = ["1:*" if since_uid is None else f"{max(since_uid, 1)}:*"]
+        if received_since is not None:
+            criteria_parts.append(f"SINCE {received_since.strftime('%d-%b-%Y')}")
+        criteria = " ".join(criteria_parts)
         status, payload = client.uid("SEARCH", None, criteria)
         if status != "OK":
             raise MailConnectorError("IMAP search request failed.")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -261,6 +261,30 @@ def test_mail_sync_command_executes_real_sync_flow(tmp_path, monkeypatch) -> Non
         assert state.cursor == "444:45"
 
 
+def test_mail_sync_command_this_year_applies_year_start_filter(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "mail_cli_this_year.sqlite"
+    monkeypatch.setenv("EXECAS_DB_PATH", str(db_path))
+    runner = CliRunner()
+    init_result = runner.invoke(app, ["init"])
+    assert init_result.exit_code == 0
+
+    connector = FakeConnector(MailSyncBatch(messages=[], uidvalidity=500, uidnext=1))
+    monkeypatch.setattr("executive_cli.cli.ImapConnector.from_env", classmethod(lambda cls: connector))
+
+    captured: dict[str, date | None] = {"received_since": None}
+
+    def _sync_mailbox_stub(session, *, connector, mailbox, received_since=None):
+        del session, connector, mailbox
+        captured["received_since"] = received_since
+        return type("Result", (), {"inserted": 0, "updated": 0, "cursor_kind": "uidvalidity_uidnext", "cursor": "500:1"})()
+
+    monkeypatch.setattr("executive_cli.cli.sync_mailbox", _sync_mailbox_stub)
+
+    result = runner.invoke(app, ["mail", "sync", "--this-year"])
+    assert result.exit_code == 0
+    assert captured["received_since"] == date(datetime.now().year, 1, 1)
+
+
 def test_imap_connector_uses_ssl_and_parses_headers(monkeypatch) -> None:
     monkeypatch.setenv("EXECAS_IMAP_HOST", "imap.example.com")
     monkeypatch.setenv("EXECAS_IMAP_USERNAME", "alice")
@@ -325,3 +349,47 @@ def test_imap_connector_uses_ssl_and_parses_headers(monkeypatch) -> None:
     assert batch.messages[0].sender == "alice@example.com"
     assert batch.messages[0].received_at == datetime(2026, 2, 20, 7, 0, tzinfo=timezone.utc).isoformat()
     assert batch.messages[0].flags == ("\\Seen",)
+
+
+def test_imap_connector_search_uses_since_filter(monkeypatch) -> None:
+    monkeypatch.setenv("EXECAS_IMAP_HOST", "imap.example.com")
+    monkeypatch.setenv("EXECAS_IMAP_USERNAME", "alice")
+    monkeypatch.setenv("EXECAS_IMAP_PASSWORD", "secret")
+    connector = ImapConnector.from_env()
+
+    calls: dict[str, str] = {}
+
+    class _ImapStub:
+        def __init__(self, host: str, port: int, timeout: float):
+            del host, port, timeout
+
+        def login(self, username: str, password: str):
+            del username, password
+            return "OK", [b"Logged in"]
+
+        def select(self, mailbox: str, readonly: bool = False):
+            del mailbox, readonly
+            return "OK", [b"1"]
+
+        def status(self, mailbox: str, criteria: str):
+            del mailbox, criteria
+            return "OK", [b"INBOX (UIDVALIDITY 777 UIDNEXT 778)"]
+
+        def uid(self, command: str, *args):
+            if command == "SEARCH":
+                calls["criteria"] = args[1]
+                return "OK", [b""]
+            raise AssertionError(command)
+
+        def logout(self):
+            return "BYE", [b"Logged out"]
+
+    monkeypatch.setattr("executive_cli.connectors.imap.imaplib.IMAP4_SSL", _ImapStub)
+
+    connector.fetch_headers(
+        mailbox="INBOX",
+        cursor_uidvalidity=None,
+        cursor_uidnext=None,
+        received_since=date(2026, 1, 1),
+    )
+    assert calls["criteria"] == "1:* SINCE 01-Jan-2026"

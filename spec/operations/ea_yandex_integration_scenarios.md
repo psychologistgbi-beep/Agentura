@@ -114,3 +114,22 @@ EA handoff package must include:
 Use artifacts:
 - `spec/operations/integration_acceptance_yandex.md`
 - TL acceptance ledger in `spec/operations/tl_dispatch_yandex_integration_2026-02-15.md`
+
+## Scenario 7: On-demand sync by user request
+
+Trigger: user asks `синхронизируй сейчас`.
+
+Actions:
+1. Execute immediate sync run:
+   - `uv run execas sync hourly --retries 2 --backoff-sec 5`
+2. Execute post-sync verification:
+   - `uv run execas calendar next-week --source yandex_caldav`
+3. Return a compact status report:
+   - calendar status (`ok/degraded/failed`);
+   - mail status (`ok/degraded/failed`);
+   - overall hourly sync status (`ok/degraded/failed`);
+   - next-week meeting count and week range.
+
+Notes:
+- Keep read-only and `INBOX`-only constraints.
+- Do not print secrets.

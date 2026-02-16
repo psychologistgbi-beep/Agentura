@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from datetime import datetime, timezone as _utc_tz
 import json
 import logging
@@ -201,6 +202,7 @@ def sync_mailbox(
     *,
     connector: MailConnector,
     mailbox: str = IMAP_SCOPE_INBOX,
+    received_since: date | None = None,
 ) -> MailSyncResult:
     scope = mailbox.strip() or IMAP_SCOPE_INBOX
     logger.info("mail_sync_started source=%s scope=%s", IMAP_SOURCE, scope)
@@ -212,11 +214,19 @@ def sync_mailbox(
     cursor_uidvalidity, cursor_uidnext = _parse_uid_cursor(state.cursor if state is not None else None)
 
     try:
-        batch = connector.fetch_headers(
-            mailbox=scope,
-            cursor_uidvalidity=cursor_uidvalidity,
-            cursor_uidnext=cursor_uidnext,
-        )
+        if received_since is None:
+            batch = connector.fetch_headers(
+                mailbox=scope,
+                cursor_uidvalidity=cursor_uidvalidity,
+                cursor_uidnext=cursor_uidnext,
+            )
+        else:
+            batch = connector.fetch_headers(
+                mailbox=scope,
+                cursor_uidvalidity=cursor_uidvalidity,
+                cursor_uidnext=cursor_uidnext,
+                received_since=received_since,
+            )
     except Exception:
         logger.error("mail_sync_failed source=%s scope=%s stage=fetch", IMAP_SOURCE, scope)
         raise

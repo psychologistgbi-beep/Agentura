@@ -38,6 +38,16 @@ Convert approved plans into predictable delivery while maintaining architecture 
 4. Integrate and push:
    - Ensure accepted commits are coherent and atomic.
    - Push without force to the intended branch only after all checks pass.
+5. Incident support workflow (mandatory):
+   - When EA escalates inability to reach business result, create/assign support execution lane immediately.
+   - Register lane entry in active dispatch with incident ID, owner role, dependency tag, file scope, and checkpoint SLA.
+   - Return every incident closure/update using `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md`.
+   - Ensure support report includes mandatory fields:
+     - `5) Agents involved`
+     - `6) Parallel execution metrics` (`configured parallel lanes`, `observed max parallel lanes`)
+   - Return a formal elimination report to EA with root cause, fixes, residual risks, verification evidence, and retry instruction.
+   - Require EA to rerun business-result attempt after incident fix.
+   - If retry still fails, set incident to `rework_required`, reopen support lane, and continue with updated evidence.
 
 ## Parallel orchestration rules
 - Build a lane map before execution: lane id, role owner, dependency type, file scope.
@@ -54,6 +64,7 @@ Convert approved plans into predictable delivery while maintaining architecture 
 - [ ] Quality gates are passed and evidenced.
 - [ ] No schema/ADR/integration/time-policy boundary violation.
 - [ ] No secrets in diff.
+- [ ] Support incident closures use `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md` with mandatory agent/parallel fields.
 - [ ] Push target and commit range are explicit.
 - [ ] Batch report includes: tasks completed/purpose, role-by-role participation, max parallel agents/lanes, and improvement actions for skills/runbooks.
 

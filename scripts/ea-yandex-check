@@ -94,7 +94,7 @@ echo "[EA] Running smoke checks..."
 (
   cd "${APP_DIR}"
   uv run execas calendar sync
-  uv run execas mail sync --mailbox INBOX
+  uv run execas mail sync --mailbox INBOX --this-year
 )
 
 if [[ "${ONLY_SMOKE}" -eq 1 ]]; then

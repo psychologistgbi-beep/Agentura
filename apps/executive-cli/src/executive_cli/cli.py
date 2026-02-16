@@ -272,6 +272,11 @@ def calendar_next_week(
 @mail_app.command("sync")
 def mail_sync(
     mailbox: str = typer.Option(IMAP_SCOPE_INBOX, "--mailbox", help="IMAP mailbox scope (e.g. INBOX)."),
+    this_year: bool = typer.Option(
+        False,
+        "--this-year",
+        help="Limit IMAP search to messages received since Jan 1 of the current local year.",
+    ),
 ) -> None:
     """Incremental sync from IMAP into emails metadata with provenance tracking."""
     scope = mailbox.strip()
@@ -281,7 +286,12 @@ def mail_sync(
     with Session(get_engine(ensure_directory=True)) as session:
         try:
             connector = ImapConnector.from_env()
-            result = sync_mailbox(session, connector=connector, mailbox=scope)
+            received_since = None
+            if this_year:
+                user_tz, _ = _get_user_timezone(session)
+                local_today = datetime.now(user_tz).date()
+                received_since = local_today.replace(month=1, day=1)
+            result = sync_mailbox(session, connector=connector, mailbox=scope, received_since=received_since)
         except MailConnectorError:
             print("[red]Mail sync failed.[/red] Check IMAP credentials and endpoint settings.")
             print(

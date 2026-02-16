@@ -111,3 +111,18 @@ Acceptance:
 | current batch | INT-EXEC-01 | Executive Assistant | accepted (readiness) | `calendar next-week` command + tests + helper update + passed gates |
 | current batch | INT-QA-01 | QA/SET | accepted | `qa_verdict_yandex_integration.md` + gate evidence |
 | current batch | INT-OPS-01 | DevOps/SRE + TL | accepted | runbook + acceptance + extended team report updates |
+
+## Incident execution queue
+
+| Incident | Priority | Owner | Status | SLA | Artifact | Expected output |
+|---|---|---|---|---|---|---|
+| `INT-YANDEX-01-DATA-GAP` | P1 | Technical Lead (triage) + Executive Assistant (implementation) | in_progress (triage done, impl assigned) | triage same day; implementation checkpoint 2026-02-15 23:30 MSK | `spec/operations/escalation_INT-YANDEX-01_data_gap_next_week_2026-02-15.md` | confirmed owner, prioritized root-cause shortlist, diagnostic plan, constrained fix scope, regression-test scope |
+
+## P1 triage addendum: INT-YANDEX-01-DATA-GAP
+
+- **Implementation owner assigned:** Executive Assistant (INT-EXEC-01).
+- **QA regression owner assigned:** QA/SET (INT-QA-01).
+- **TL control scope:** SLA tracking, acceptance verdict after fix, dispatch ledger update.
+- **Root-cause shortlist:** collection mismatch, full-snapshot soft-delete side effect, timezone window mismatch, VEVENT parsing gaps, source/is_deleted mismatch.
+- **Current status:** triage completed, execution moved to implementation lane.
+- **Next checkpoint:** `2026-02-15 23:30 MSK` (diagnostics + fix delta from EA).

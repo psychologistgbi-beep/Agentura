@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from typing import Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -87,7 +87,8 @@ class CalDavConnector:
         timezone_name: str,
     ) -> CalendarSyncBatch:
         del calendar_slug
-        collection_props = self._fetch_collection_props()
+        collection_url = self._resolve_collection_url()
+        collection_props = self._fetch_collection_props(collection_url=collection_url)
         ctag = collection_props.get("ctag")
 
         if ctag and cursor and cursor_kind == "ctag" and cursor == ctag:
@@ -98,7 +99,7 @@ class CalDavConnector:
                 full_snapshot=False,
             )
 
-        events = self._fetch_full_snapshot(timezone_name=timezone_name)
+        events = self._fetch_full_snapshot(collection_url=collection_url, timezone_name=timezone_name)
         return CalendarSyncBatch(
             events=events,
             cursor=ctag,
@@ -106,7 +107,131 @@ class CalDavConnector:
             full_snapshot=True,
         )
 
-    def _fetch_collection_props(self) -> dict[str, str]:
+    def _resolve_collection_url(self) -> str:
+        parsed = urlparse(self.base_url)
+        # If caller passed a concrete path, treat it as a collection URL.
+        if parsed.path and parsed.path != "/":
+            return self.base_url
+
+        calendar_home_url = self._discover_calendar_home_url(self.base_url)
+        if calendar_home_url is None:
+            raise CalendarConnectorError(
+                "CalDAV calendar-home-set discovery failed. Check endpoint settings."
+            )
+
+        collection_url = self._discover_primary_collection_url(calendar_home_url)
+        if collection_url is None:
+            raise CalendarConnectorError("CalDAV calendar collection discovery failed.")
+        return collection_url
+
+    def _discover_calendar_home_url(self, root_url: str) -> str | None:
+        root_body = """<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:current-user-principal />
+    <c:calendar-home-set />
+  </d:prop>
+</d:propfind>
+"""
+        payload = self._request_xml_url(root_url, method="PROPFIND", depth="0", body=root_body)
+        root = self._parse_xml(payload)
+
+        calendar_home_href = self._extract_first_href(
+            root, f"{{{self._NS_CALDAV}}}calendar-home-set/{{{self._NS_DAV}}}href"
+        )
+        if calendar_home_href:
+            return urljoin(root_url, calendar_home_href)
+
+        principal_href = self._extract_first_href(
+            root, f"{{{self._NS_DAV}}}current-user-principal/{{{self._NS_DAV}}}href"
+        )
+        if not principal_href:
+            return None
+
+        principal_url = urljoin(root_url, principal_href)
+        principal_body = """<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <c:calendar-home-set />
+  </d:prop>
+</d:propfind>
+"""
+        principal_payload = self._request_xml_url(
+            principal_url, method="PROPFIND", depth="0", body=principal_body
+        )
+        principal_root = self._parse_xml(principal_payload)
+        principal_home_href = self._extract_first_href(
+            principal_root, f"{{{self._NS_CALDAV}}}calendar-home-set/{{{self._NS_DAV}}}href"
+        )
+        if not principal_home_href:
+            return None
+        return urljoin(principal_url, principal_home_href)
+
+    def _discover_primary_collection_url(self, calendar_home_url: str) -> str | None:
+        body = """<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:resourcetype />
+    <d:displayname />
+  </d:prop>
+</d:propfind>
+"""
+        payload = self._request_xml_url(calendar_home_url, method="PROPFIND", depth="1", body=body)
+        root = self._parse_xml(payload)
+
+        candidates: list[tuple[str, str]] = []
+        for response in root.findall(f".//{{{self._NS_DAV}}}response"):
+            href = (response.findtext(f"{{{self._NS_DAV}}}href") or "").strip()
+            if not href:
+                continue
+
+            is_calendar = False
+            display_name = ""
+            for propstat in response.findall(f"{{{self._NS_DAV}}}propstat"):
+                status = (propstat.findtext(f"{{{self._NS_DAV}}}status") or "").strip()
+                if "200" not in status:
+                    continue
+                prop = propstat.find(f"{{{self._NS_DAV}}}prop")
+                if prop is None:
+                    continue
+
+                resource_type = prop.find(f"{{{self._NS_DAV}}}resourcetype")
+                if resource_type is not None and resource_type.find(f"{{{self._NS_CALDAV}}}calendar") is not None:
+                    is_calendar = True
+                if not display_name:
+                    display_name = (prop.findtext(f"{{{self._NS_DAV}}}displayname") or "").strip()
+
+            if not is_calendar:
+                continue
+            candidates.append((urljoin(calendar_home_url, href), display_name))
+
+        if not candidates:
+            return None
+
+        def _rank(item: tuple[str, str]) -> tuple[int, int, str]:
+            url, display_name = item
+            path = urlparse(url).path.rstrip("/").lower()
+            display_norm = display_name.strip().lower()
+            prefer_events_path = 0 if path.endswith("/events") else 1
+            prefer_primary_name = 0 if display_norm in {"primary", "default", "main"} else 1
+            return (prefer_events_path, prefer_primary_name, path)
+
+        return sorted(candidates, key=_rank)[0][0]
+
+    def _extract_first_href(self, root: ET.Element, path: str) -> str | None:
+        for prop in root.findall(f".//{{{self._NS_DAV}}}prop"):
+            href = (prop.findtext(path) or "").strip()
+            if href:
+                return href
+        return None
+
+    def _parse_xml(self, payload: bytes) -> ET.Element:
+        try:
+            return ET.fromstring(payload)
+        except ET.ParseError:
+            raise CalendarConnectorError("CalDAV response is invalid.") from None
+
+    def _fetch_collection_props(self, *, collection_url: str | None = None) -> dict[str, str]:
         body = """<?xml version="1.0" encoding="utf-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
   <d:prop>
@@ -115,11 +240,17 @@ class CalDavConnector:
   </d:prop>
 </d:propfind>
 """
-        payload = self._request_xml(method="PROPFIND", depth="0", body=body)
-        try:
-            root = ET.fromstring(payload)
-        except ET.ParseError:
-            raise CalendarConnectorError("CalDAV response is invalid.") from None
+        target_url = collection_url or self.base_url
+        if target_url == self.base_url:
+            payload = self._request_xml(method="PROPFIND", depth="0", body=body)
+        else:
+            payload = self._request_xml_url(
+                target_url,
+                method="PROPFIND",
+                depth="0",
+                body=body,
+            )
+        root = self._parse_xml(payload)
 
         ctag: str | None = None
         sync_token: str | None = None
@@ -141,7 +272,12 @@ class CalDavConnector:
             result["sync_token"] = sync_token
         return result
 
-    def _fetch_full_snapshot(self, *, timezone_name: str) -> list[RemoteCalendarEvent]:
+    def _fetch_full_snapshot(
+        self,
+        *,
+        timezone_name: str,
+        collection_url: str | None = None,
+    ) -> list[RemoteCalendarEvent]:
         body = """<?xml version="1.0" encoding="utf-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop>
@@ -150,11 +286,17 @@ class CalDavConnector:
   </d:prop>
 </d:propfind>
 """
-        payload = self._request_xml(method="PROPFIND", depth="1", body=body)
-        try:
-            root = ET.fromstring(payload)
-        except ET.ParseError:
-            raise CalendarConnectorError("CalDAV response is invalid.") from None
+        target_url = collection_url or self.base_url
+        if target_url == self.base_url:
+            payload = self._request_xml(method="PROPFIND", depth="1", body=body)
+        else:
+            payload = self._request_xml_url(
+                target_url,
+                method="PROPFIND",
+                depth="1",
+                body=body,
+            )
+        root = self._parse_xml(payload)
 
         try:
             default_timezone = ZoneInfo(timezone_name)
@@ -199,9 +341,12 @@ class CalDavConnector:
         return etag, calendar_data
 
     def _request_xml(self, *, method: str, depth: str, body: str) -> bytes:
+        return self._request_xml_url(self.base_url, method=method, depth=depth, body=body)
+
+    def _request_xml_url(self, url: str, *, method: str, depth: str, body: str) -> bytes:
         auth = base64.b64encode(f"{self.username}:{self.password}".encode("utf-8")).decode("ascii")
         request = Request(
-            self.base_url,
+            url,
             data=body.encode("utf-8"),
             method=method,
             headers={
