@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import getpass
+import os
 from datetime import datetime, timedelta, timezone as _utc_tz
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -41,7 +43,21 @@ from executive_cli.scrum_metrics import (
     compute_scrum_metrics,
 )
 from executive_cli.sync_runner import run_hourly_sync
-from executive_cli.sync_service import CALDAV_SOURCE, IMAP_SCOPE_INBOX, sync_calendar_primary, sync_mailbox
+from executive_cli.sync_service import (
+    CALDAV_SOURCE,
+    IMAP_SCOPE_INBOX,
+    reset_calendar_sync_cursor,
+    sync_calendar_primary,
+    sync_mailbox,
+)
+from executive_cli.secret_store import (
+    DEFAULT_CALDAV_KEYCHAIN_SERVICE,
+    DEFAULT_IMAP_KEYCHAIN_SERVICE,
+    SecretStoreError,
+    keychain_password_exists,
+    resolve_keychain_service,
+    store_keychain_password,
+)
 from executive_cli.timeutil import db_to_dt, dt_to_db, parse_local_dt
 
 app = typer.Typer(
@@ -62,6 +78,7 @@ task_app = typer.Typer(help="Manage GTD tasks.")
 plan_app = typer.Typer(help="Manage deterministic day planning.")
 review_app = typer.Typer(help="Weekly review reports.")
 sync_app = typer.Typer(help="Run combined external sync orchestration.")
+secret_app = typer.Typer(help="Manage secure secret storage (macOS Keychain).")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(calendar_app, name="calendar")
@@ -73,6 +90,7 @@ app.add_typer(people_app, name="people")
 app.add_typer(project_app, name="project")
 app.add_typer(review_app, name="review")
 app.add_typer(sync_app, name="sync")
+app.add_typer(secret_app, name="secret")
 app.add_typer(task_app, name="task")
 app.add_typer(plan_app, name="plan")
 
@@ -191,10 +209,18 @@ def busy_list(
 
 
 @calendar_app.command("sync")
-def calendar_sync() -> None:
+def calendar_sync(
+    force_full: bool = typer.Option(
+        False,
+        "--force-full",
+        help="Reset stored calendar cursor before sync (forces a full snapshot refresh).",
+    ),
+) -> None:
     """Incremental sync from CalDAV into busy blocks with provenance tracking."""
     with Session(get_engine(ensure_directory=True)) as session:
         try:
+            if force_full:
+                reset_calendar_sync_cursor(session)
             connector = CalDavConnector.from_env()
             result = sync_calendar_primary(session, connector=connector)
         except CalendarConnectorError:
@@ -207,6 +233,8 @@ def calendar_sync() -> None:
         except ValueError as exc:
             raise typer.BadParameter(str(exc)) from exc
 
+    if force_full:
+        print("[yellow]Forced full calendar resync applied:[/yellow] cursor reset before fetch")
     print(
         "[green]Calendar sync complete.[/green] "
         f"inserted={result.inserted} updated={result.updated} "
@@ -360,6 +388,122 @@ def sync_hourly(
 
     print("[red]Hourly sync failed.[/red] status=degraded")
     raise typer.Exit(code=1)
+
+
+def _resolve_secret_account(username: str | None, env_var: str, label: str) -> str:
+    account = (username or os.getenv(env_var, "")).strip()
+    if not account:
+        raise typer.BadParameter(
+            f"Missing {label} username. Pass --username or set {env_var} in environment."
+        )
+    return account
+
+
+def _resolve_secret_service(override: str | None, env_var: str, default: str) -> str:
+    return (override.strip() if override else resolve_keychain_service(env_var, default)).strip()
+
+
+@secret_app.command("set-caldav")
+def secret_set_caldav(
+    username: str | None = typer.Option(
+        None,
+        "--username",
+        help="CalDAV username (defaults to EXECAS_CALDAV_USERNAME).",
+    ),
+    service: str | None = typer.Option(
+        None,
+        "--service",
+        help=f"Keychain service override (default: {DEFAULT_CALDAV_KEYCHAIN_SERVICE}).",
+    ),
+) -> None:
+    """Store CalDAV app-password in macOS Keychain."""
+    account = _resolve_secret_account(username, "EXECAS_CALDAV_USERNAME", "CalDAV")
+    service_name = _resolve_secret_service(
+        service,
+        "EXECAS_CALDAV_KEYCHAIN_SERVICE",
+        DEFAULT_CALDAV_KEYCHAIN_SERVICE,
+    )
+    password = getpass.getpass("CalDAV app-password: ")
+    if not password:
+        raise typer.BadParameter("CalDAV password must not be empty.")
+    try:
+        store_keychain_password(service=service_name, account=account, password=password)
+    except SecretStoreError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    print(
+        "[green]CalDAV password stored in Keychain.[/green] "
+        f"service={service_name} account={account}"
+    )
+
+
+@secret_app.command("set-imap")
+def secret_set_imap(
+    username: str | None = typer.Option(
+        None,
+        "--username",
+        help="IMAP username (defaults to EXECAS_IMAP_USERNAME).",
+    ),
+    service: str | None = typer.Option(
+        None,
+        "--service",
+        help=f"Keychain service override (default: {DEFAULT_IMAP_KEYCHAIN_SERVICE}).",
+    ),
+) -> None:
+    """Store IMAP app-password in macOS Keychain."""
+    account = _resolve_secret_account(username, "EXECAS_IMAP_USERNAME", "IMAP")
+    service_name = _resolve_secret_service(
+        service,
+        "EXECAS_IMAP_KEYCHAIN_SERVICE",
+        DEFAULT_IMAP_KEYCHAIN_SERVICE,
+    )
+    password = getpass.getpass("IMAP app-password: ")
+    if not password:
+        raise typer.BadParameter("IMAP password must not be empty.")
+    try:
+        store_keychain_password(service=service_name, account=account, password=password)
+    except SecretStoreError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    print(
+        "[green]IMAP password stored in Keychain.[/green] "
+        f"service={service_name} account={account}"
+    )
+
+
+@secret_app.command("status")
+def secret_status(
+    caldav_username: str | None = typer.Option(
+        None,
+        "--caldav-username",
+        help="CalDAV username (defaults to EXECAS_CALDAV_USERNAME).",
+    ),
+    imap_username: str | None = typer.Option(
+        None,
+        "--imap-username",
+        help="IMAP username (defaults to EXECAS_IMAP_USERNAME).",
+    ),
+) -> None:
+    """Check whether keychain passwords are available for configured accounts."""
+    caldav_account = _resolve_secret_account(caldav_username, "EXECAS_CALDAV_USERNAME", "CalDAV")
+    imap_account = _resolve_secret_account(imap_username, "EXECAS_IMAP_USERNAME", "IMAP")
+    caldav_service = resolve_keychain_service(
+        "EXECAS_CALDAV_KEYCHAIN_SERVICE",
+        DEFAULT_CALDAV_KEYCHAIN_SERVICE,
+    )
+    imap_service = resolve_keychain_service(
+        "EXECAS_IMAP_KEYCHAIN_SERVICE",
+        DEFAULT_IMAP_KEYCHAIN_SERVICE,
+    )
+
+    caldav_present = keychain_password_exists(service=caldav_service, account=caldav_account)
+    imap_present = keychain_password_exists(service=imap_service, account=imap_account)
+    print(
+        "caldav_keychain "
+        f"service={caldav_service} account={caldav_account} present={str(caldav_present).lower()}"
+    )
+    print(
+        "imap_keychain "
+        f"service={imap_service} account={imap_account} present={str(imap_present).lower()}"
+    )
 
 
 @config_app.command("show")

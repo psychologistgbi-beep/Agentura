@@ -202,6 +202,25 @@ def sync_calendar_primary(
     )
 
 
+def reset_calendar_sync_cursor(session: Session) -> bool:
+    """Clear persisted calendar cursor so the next run performs a full snapshot fetch."""
+    state = session.exec(
+        select(SyncState)
+        .where(SyncState.source == CALDAV_SOURCE)
+        .where(SyncState.scope == CALDAV_SCOPE_PRIMARY)
+    ).first()
+    if state is None:
+        return False
+
+    changed = state.cursor is not None or state.cursor_kind is not None
+    state.cursor = None
+    state.cursor_kind = None
+    state.updated_at = datetime.now(_utc_tz.utc).isoformat()
+    session.add(state)
+    session.commit()
+    return changed
+
+
 def sync_mailbox(
     session: Session,
     *,

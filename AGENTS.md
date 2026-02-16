@@ -275,6 +275,7 @@ No broken imports, no syntax errors. The test suite implicitly validates this.
 
 ### Secrets management
 - Secrets (API keys, tokens, passwords) are stored **only** via environment variables or local files listed in `.gitignore`.
+- For local operator runtime, OS secret stores (for example macOS Keychain) are allowed for credential-at-rest storage, with values loaded into process memory at execution time only.
 - **Never** commit credentials, tokens, or passwords to the repository.
 - The `.gitignore` must include: `.env`, `*.pem`, `*.key`, `credentials.*`.
 

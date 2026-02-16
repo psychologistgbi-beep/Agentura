@@ -285,6 +285,19 @@ def test_mail_sync_command_this_year_applies_year_start_filter(tmp_path, monkeyp
     assert captured["received_since"] == date(datetime.now().year, 1, 1)
 
 
+def test_imap_from_env_loads_password_from_keychain_when_env_missing(monkeypatch) -> None:
+    monkeypatch.setenv("EXECAS_IMAP_HOST", "imap.example.com")
+    monkeypatch.setenv("EXECAS_IMAP_USERNAME", "alice@example.com")
+    monkeypatch.delenv("EXECAS_IMAP_PASSWORD", raising=False)
+    monkeypatch.setattr(
+        "executive_cli.connectors.imap.load_password_from_keychain",
+        lambda **kwargs: "secret-from-keychain",
+    )
+
+    connector = ImapConnector.from_env()
+    assert connector.password == "secret-from-keychain"
+
+
 def test_imap_connector_uses_ssl_and_parses_headers(monkeypatch) -> None:
     monkeypatch.setenv("EXECAS_IMAP_HOST", "imap.example.com")
     monkeypatch.setenv("EXECAS_IMAP_USERNAME", "alice")

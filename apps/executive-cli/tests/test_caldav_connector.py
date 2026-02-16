@@ -33,6 +33,7 @@ def test_from_env_requires_all_credentials(monkeypatch) -> None:
     monkeypatch.delenv("EXECAS_CALDAV_URL", raising=False)
     monkeypatch.delenv("EXECAS_CALDAV_USERNAME", raising=False)
     monkeypatch.delenv("EXECAS_CALDAV_PASSWORD", raising=False)
+    monkeypatch.setattr("executive_cli.connectors.caldav.load_password_from_keychain", lambda **kwargs: None)
 
     with pytest.raises(CalendarConnectorError, match="not configured"):
         CalDavConnector.from_env()
@@ -45,6 +46,19 @@ def test_from_env_rejects_http_url(monkeypatch) -> None:
 
     with pytest.raises(CalendarConnectorError, match="https://"):
         CalDavConnector.from_env()
+
+
+def test_from_env_loads_password_from_keychain_when_env_missing(monkeypatch) -> None:
+    monkeypatch.setenv("EXECAS_CALDAV_URL", "https://caldav.example.com")
+    monkeypatch.setenv("EXECAS_CALDAV_USERNAME", "alice@example.com")
+    monkeypatch.delenv("EXECAS_CALDAV_PASSWORD", raising=False)
+    monkeypatch.setattr(
+        "executive_cli.connectors.caldav.load_password_from_keychain",
+        lambda **kwargs: "secret-from-keychain",
+    )
+
+    connector = CalDavConnector.from_env()
+    assert connector.password == "secret-from-keychain"
 
 
 def test_fetch_events_short_circuits_when_ctag_unchanged(monkeypatch) -> None:

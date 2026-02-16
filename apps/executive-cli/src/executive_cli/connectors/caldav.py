@@ -13,6 +13,10 @@ import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dateutil.rrule import rrulestr
+from executive_cli.secret_store import (
+    DEFAULT_CALDAV_KEYCHAIN_SERVICE,
+    load_password_from_keychain,
+)
 
 logger = logging.getLogger(__name__)
 _SYNC_LOOKBACK_DAYS = 30
@@ -76,10 +80,21 @@ class CalDavConnector:
         base_url = os.getenv("EXECAS_CALDAV_URL", "").strip()
         username = os.getenv("EXECAS_CALDAV_USERNAME", "").strip()
         password = os.getenv("EXECAS_CALDAV_PASSWORD", "").strip()
+        if not password and username:
+            password = (
+                load_password_from_keychain(
+                    account=username,
+                    env_service_var="EXECAS_CALDAV_KEYCHAIN_SERVICE",
+                    default_service=DEFAULT_CALDAV_KEYCHAIN_SERVICE,
+                )
+                or ""
+            )
 
         if not base_url or not username or not password:
             raise CalendarConnectorError(
-                "CalDAV connector is not configured. Set EXECAS_CALDAV_URL, EXECAS_CALDAV_USERNAME, EXECAS_CALDAV_PASSWORD."
+                "CalDAV connector is not configured. Set EXECAS_CALDAV_URL, EXECAS_CALDAV_USERNAME and "
+                "EXECAS_CALDAV_PASSWORD, or store the password in macOS Keychain via "
+                "'execas secret set-caldav'."
             )
 
         return cls(base_url=base_url, username=username, password=password)

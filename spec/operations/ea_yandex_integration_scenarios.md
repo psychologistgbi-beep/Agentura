@@ -7,18 +7,18 @@
 ## Security baseline
 
 - Credentials are accepted from user only via secure channel.
-- Credentials are used via environment variables only.
+- Credentials are used via environment variables and/or macOS Keychain lookup at runtime.
 - Credentials are never written to repository files, markdown examples, or SQLite.
 - Mail scope is fixed to `INBOX`.
 
 Required runtime variables:
 - `EXECAS_CALDAV_URL`
 - `EXECAS_CALDAV_USERNAME`
-- `EXECAS_CALDAV_PASSWORD`
+- `EXECAS_CALDAV_PASSWORD` (or Keychain service `EXECAS_CALDAV_KEYCHAIN_SERVICE` / default `execas.caldav.password`)
 - `EXECAS_IMAP_HOST`
 - `EXECAS_IMAP_PORT` (default `993`)
 - `EXECAS_IMAP_USERNAME`
-- `EXECAS_IMAP_PASSWORD`
+- `EXECAS_IMAP_PASSWORD` (or Keychain service `EXECAS_IMAP_KEYCHAIN_SERVICE` / default `execas.imap.password`)
 
 ## Scenario 1: Credential intake and secure session setup
 

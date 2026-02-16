@@ -443,3 +443,41 @@ def test_calendar_sync_command_executes_real_sync_flow(tmp_path, monkeypatch) ->
             .where(SyncState.scope == CALDAV_SCOPE_PRIMARY)
         ).one()
         assert state.cursor == "ctag-10"
+
+
+def test_calendar_sync_force_full_resets_cursor_before_fetch(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "calendar_cli_force.sqlite"
+    monkeypatch.setenv("EXECAS_DB_PATH", str(db_path))
+    runner = CliRunner()
+    init_result = runner.invoke(app, ["init"])
+    assert init_result.exit_code == 0
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        session.add(
+            SyncState(
+                source=CALDAV_SOURCE,
+                scope=CALDAV_SCOPE_PRIMARY,
+                cursor="ctag-old",
+                cursor_kind="ctag",
+                updated_at="2026-02-20T05:00:00+00:00",
+            )
+        )
+        session.commit()
+
+    connector = FakeConnector(
+        CalendarSyncBatch(
+            events=[],
+            cursor="ctag-new",
+            cursor_kind="ctag",
+            full_snapshot=True,
+        )
+    )
+    monkeypatch.setattr(
+        "executive_cli.cli.CalDavConnector.from_env",
+        classmethod(lambda cls: connector),
+    )
+
+    result = runner.invoke(app, ["calendar", "sync", "--force-full"])
+    assert result.exit_code == 0
+    assert "Forced full calendar resync applied" in result.output
+    assert connector.calls == [("primary", None, None, "Europe/Moscow")]

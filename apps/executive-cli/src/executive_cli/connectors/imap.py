@@ -13,6 +13,11 @@ from email.policy import default
 from email.utils import parseaddr, parsedate_to_datetime
 from typing import Protocol
 
+from executive_cli.secret_store import (
+    DEFAULT_IMAP_KEYCHAIN_SERVICE,
+    load_password_from_keychain,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,11 +72,21 @@ class ImapConnector:
         host = os.getenv("EXECAS_IMAP_HOST", "").strip()
         username = os.getenv("EXECAS_IMAP_USERNAME", "").strip()
         password = os.getenv("EXECAS_IMAP_PASSWORD", "").strip()
+        if not password and username:
+            password = (
+                load_password_from_keychain(
+                    account=username,
+                    env_service_var="EXECAS_IMAP_KEYCHAIN_SERVICE",
+                    default_service=DEFAULT_IMAP_KEYCHAIN_SERVICE,
+                )
+                or ""
+            )
         port_raw = os.getenv("EXECAS_IMAP_PORT", "993").strip()
 
         if not host or not username or not password:
             raise MailConnectorError(
-                "IMAP connector is not configured. Set EXECAS_IMAP_HOST, EXECAS_IMAP_USERNAME, EXECAS_IMAP_PASSWORD."
+                "IMAP connector is not configured. Set EXECAS_IMAP_HOST, EXECAS_IMAP_USERNAME and EXECAS_IMAP_PASSWORD, "
+                "or store the password in macOS Keychain via 'execas secret set-imap'."
             )
 
         try:
