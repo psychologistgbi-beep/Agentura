@@ -241,3 +241,57 @@ Adopt a provenance-first schema extension for external ingest:
 - Disable connector sync commands and keep manual fallback (`busy add`, `task capture`).
 - Migration rollback removes added tables/columns/indexes and returns to manual-only model.
 
+---
+
+## ADR-11: Task Ingestion Pipeline (LLM-Assisted Extraction from Multiple Channels)
+
+**Context:**
+GTD backlog is populated only via manual `execas task capture`. Actionable items from meeting protocols, assistant dialogues, and incoming email are routinely lost because there is no automated extraction path. ADR-10 provides email metadata storage and task-email links, but no mechanism to extract task candidates from any channel.
+
+**Decision:**
+Adopt a four-stage ingestion pipeline: Extract → Classify → Deduplicate → Route.
+
+1. **Extract (LLM-required):** Parse unstructured text from three channels (meeting notes, assistant dialogues, email subjects) into structured task candidates with title, status, priority, estimate, due date, and confidence score.
+
+2. **Classify (LLM-assisted + heuristic):** Resolve project/commitment/person hints against existing DB entities. Apply defaults for missing fields (priority=P2, estimate=30, status=NEXT).
+
+3. **Deduplicate (deterministic):** Multi-level dedup — exact title match, fuzzy match (Levenshtein), source-specific checks (email already linked, document already processed). No LLM needed.
+
+4. **Route (deterministic):** Confidence-based routing:
+   - >= 0.8 → auto-create in `tasks` (via EA writer, ADR-09)
+   - 0.3–0.79 → `task_drafts` for human review
+   - < 0.3 → skip (logged only)
+   - Threshold configurable via `ingest_auto_threshold` setting.
+
+5. **Schema additions:** Three new tables — `ingest_documents` (source tracking), `task_drafts` (review queue), `ingest_log` (audit trail). No changes to existing `tasks`, `emails`, or `task_email_links` tables.
+
+6. **LLM isolation:** Only `extractor.py` calls the LLM API. All other stages are deterministic. LLM credentials via env var (`LLM_API_KEY`), never in DB or repo.
+
+7. **Privacy boundary:**
+   - Meeting notes and dialogue transcripts: full text sent to LLM (user-initiated, user's own content).
+   - Email: subject + sender only (no body — ADR-10 line 236 preserved).
+   - LLM raw responses discarded after structured parsing.
+
+**Consequences:**
+- First LLM dependency in the pipeline (ADR-06 kept `plan day` deterministic — ingestion is explicitly non-deterministic by nature).
+- Human-in-the-loop by default: conservative threshold means most candidates go to review queue.
+- Manual `task capture` remains fully functional — ingestion is additive, not replacing.
+- Three new tables require an Alembic migration (post-R1).
+- LLM API cost is per-extraction — configurable model and batch limits control cost.
+
+**Alternatives considered:**
+- Rule-based extraction (regex patterns for "TODO:", "ACTION:", etc.)
+  - Rejected: too brittle for Russian + English mixed content, misses implicit action items.
+- Full email body analysis
+  - Rejected: violates ADR-10 privacy boundary (no body storage/transmission).
+- Single auto-create mode (no review queue)
+  - Rejected: LLM hallucination risk too high for trusted GTD backlog; review queue is essential safety net.
+- Embedding-based semantic dedup
+  - Deferred: adds vector DB dependency; simple string dedup sufficient for MVP ingestion.
+
+**Rollback:**
+- Remove `ingest` CLI commands.
+- Drop `ingest_documents`, `task_drafts`, `ingest_log` tables via migration downgrade.
+- Tasks already auto-created remain in `tasks` table (they are valid tasks).
+- Manual `task capture` + `task capture --from-email` (R3) continue to work.
+

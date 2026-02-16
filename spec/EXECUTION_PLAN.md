@@ -139,6 +139,67 @@ uv run pytest tests/test_security_guardrails.py -v
 uv run pytest --cov=executive_cli --cov-fail-under=80
 ```
 
+### Phase 7: Task Ingestion Pipeline (ADR-11)
+
+**Dependency graph:**
+```
+Phase 6 R1 (schema) ──> I1 (ingest schema)
+Phase 6 R3 (mail)   ──> I5 (email channel)
+
+I1 (ingest schema)
+├── I2 (LLM extractor)
+│     └── I3 (pipeline core: classify + dedup + route)
+│           └── I4 (CLI commands: ingest meeting/dialogue/email/review)
+│                 └── I5 (email channel integration with R3)
+└── I6 (tests — after I4)
+```
+
+| Step | Sub-phase | Scope | Verify | Commit message pattern |
+|------|-----------|-------|--------|----------------------|
+| 20 | **I1** | Schema: `ingest_documents`, `task_drafts`, `ingest_log` tables | See below | `feat: ingest pipeline schema (ADR-11)` |
+| 21 | **I2** | LLM extractor (`extractor.py`, `llm/client.py`) + C1 meeting channel | See below | `feat: LLM task extractor for meeting notes` |
+| 22 | **I3** | Pipeline core: `classifier.py`, `dedup.py`, `router.py`, `pipeline.py` | See below | `feat: ingest pipeline classify/dedup/route` |
+| 23 | **I4** | CLI: `ingest meeting/dialogue/email/review/accept/skip/status` | See below | `feat: ingest CLI commands` |
+| 24 | **I5** | Email channel: C3 integration with `emails` table + `task_email_links` | See below | `feat: email channel ingestion (C3)` |
+| 25 | **I6** | Tests: per-stage unit + integration pipeline test | See below | `test: ingest pipeline tests` |
+
+#### I1 verify commands
+```bash
+cd apps/executive-cli
+rm -f .data/execas.sqlite && uv run execas init
+sqlite3 .data/execas.sqlite ".tables"
+# Must include: ingest_documents, task_drafts, ingest_log
+sqlite3 .data/execas.sqlite "PRAGMA table_info('task_drafts');"
+# Must include: confidence, source_channel, dedup_flag
+uv run pytest --cov=executive_cli --cov-fail-under=80
+```
+
+#### I2–I3 verify commands
+```bash
+cd apps/executive-cli
+# Unit test: mock LLM, verify structured output parsing
+uv run pytest tests/test_extractor.py tests/test_pipeline.py -v
+```
+
+#### I4 verify commands
+```bash
+cd apps/executive-cli
+echo "TODO: Петров готовит КП до пятницы" > /tmp/test_meeting.md
+uv run execas ingest meeting /tmp/test_meeting.md --title "Test meeting"
+uv run execas ingest review
+uv run execas ingest status
+uv run pytest --cov=executive_cli --cov-fail-under=80
+```
+
+#### I5 verify commands
+```bash
+cd apps/executive-cli
+# Requires R3 mail sync to have populated emails table
+uv run execas ingest email --since 2026-02-01
+uv run execas ingest review
+uv run pytest --cov=executive_cli --cov-fail-under=80
+```
+
 ---
 
 ## Risk Notes
@@ -148,6 +209,8 @@ uv run pytest --cov=executive_cli --cov-fail-under=80
 - **MCP stubs** (TASK 11) are intentionally late — they don't block anything and can be deferred if time runs out.
 - **R2/R3 require external credentials** for integration testing. Unit tests use mocks; real CalDAV/IMAP testing requires Yandex app password in env vars.
 - **R4 depends on R2+R3 code** for security review. Can be developed in parallel but final validation requires R2+R3 connector code.
+- **Phase 7 (ingestion) introduces first LLM dependency.** Extraction quality depends on model choice and prompt engineering. Mock LLM in unit tests; real LLM for integration tests.
+- **LLM hallucination risk** mitigated by conservative auto-create threshold (0.8) and human review queue.
 
 ## Definition of Done
 
@@ -168,3 +231,14 @@ R1-R4 committed. The following must hold:
 - All R4 verify commands pass (security guardrails G1-G4).
 - ACCEPTANCE.md criteria G3-post, K1-post, K2-post met.
 - `uv run pytest --cov=executive_cli --cov-fail-under=80` passes.
+
+### Post-MVP: Task Ingestion (Phase 7)
+
+I1-I6 committed. The following must hold:
+- All I1 verify commands pass (ingest schema + migration).
+- `ingest meeting` processes a test file and produces drafts or tasks.
+- `ingest review` displays pending drafts.
+- `ingest email` processes emails from `emails` table (requires R3).
+- Dedup prevents duplicate tasks from same source.
+- Auto-create respects confidence threshold.
+- All tests pass: `uv run pytest --cov=executive_cli --cov-fail-under=80`.
