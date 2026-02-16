@@ -56,8 +56,8 @@ Acceptance:
 
 | Commit | Task | Role | Verdict | Evidence |
 |---|---|---|---|---|
-| ingest-impl batch (this delivery commit) | EA-INGEST-IMPL-01 | Executive Assistant | accepted | ingest modules + migration + CLI + shared task service |
-| ingest-impl batch (this delivery commit) | QA-INGEST-IMPL-01 | QA/SET | accepted | ingest tests + green quality gates |
+| `68ae625` | EA-INGEST-IMPL-01 | Executive Assistant | accepted | ingest modules + migration + CLI + shared task service |
+| `68ae625` | QA-INGEST-IMPL-01 | QA/SET | accepted | ingest tests + green quality gates |
 | (this file + gate report) | TL gate | Technical Lead | accepted | scope lock + acceptance ledger + push readiness |
 
 ## Parallel lanes
