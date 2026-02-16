@@ -17,6 +17,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "lunch_duration_min": "60",
     "min_focus_block_min": "30",
     "buffer_min": "5",
+    "ingest_auto_threshold": "0.8",
+    "ingest_llm_provider": "anthropic",
+    "ingest_llm_model": "claude-sonnet-4-5-20250929",
+    "ingest_llm_temperature": "0",
 }
 PRIMARY_CALENDAR_SLUG = "primary"
 PRIMARY_CALENDAR_NAME = "Primary"

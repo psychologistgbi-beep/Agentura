@@ -228,3 +228,62 @@ class TaskEmailLink(SQLModel, table=True):
     email_id: int = Field(foreign_key="emails.id")
     link_type: str
     created_at: str
+
+
+class IngestDocument(SQLModel, table=True):
+    __tablename__ = "ingest_documents"
+    __table_args__ = (
+        UniqueConstraint("channel", "source_ref", name="uq_ingest_documents_channel_source_ref"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    channel: str
+    source_ref: str
+    title: str | None = None
+    status: str = Field(default="pending")
+    items_extracted: int | None = None
+    created_at: str
+    processed_at: str | None = None
+
+
+class TaskDraft(SQLModel, table=True):
+    __tablename__ = "task_drafts"
+    __table_args__ = (
+        Index("ix_task_drafts_status_confidence", "status", "confidence"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    title: str
+    suggested_status: str
+    suggested_priority: str
+    estimate_min: int
+    due_date: date | None = None
+    waiting_on: str | None = None
+    ping_at: str | None = None
+    project_hint: str | None = None
+    commitment_hint: str | None = None
+    confidence: float
+    rationale: str | None = None
+    dedup_flag: str | None = None
+    source_channel: str
+    source_document_id: int | None = Field(default=None, foreign_key="ingest_documents.id")
+    source_email_id: int | None = Field(default=None, foreign_key="emails.id")
+    status: str = Field(default="pending")
+    created_at: str
+    reviewed_at: str | None = None
+
+
+class IngestLog(SQLModel, table=True):
+    __tablename__ = "ingest_log"
+    __table_args__ = (
+        Index("ix_ingest_log_document_id", "document_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    document_id: int = Field(foreign_key="ingest_documents.id")
+    action: str
+    task_id: int | None = Field(default=None, foreign_key="tasks.id")
+    draft_id: int | None = Field(default=None, foreign_key="task_drafts.id")
+    confidence: float | None = None
+    details_json: str | None = None
+    created_at: str

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import getpass
+import json
 import os
 from datetime import datetime, timedelta, timezone as _utc_tz
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,6 +21,18 @@ from executive_cli.db import (
     get_engine,
     initialize_database,
 )
+from executive_cli.ingest.pipeline import ingest_dialogue_file, ingest_email_channel, ingest_meeting_file
+from executive_cli.ingest.types import (
+    CHANNEL_DIALOGUE,
+    CHANNEL_EMAIL,
+    CHANNEL_MEETING,
+    DOC_STATUS_FAILED,
+    DOC_STATUS_PENDING,
+    DOC_STATUS_PROCESSED,
+    DRAFT_STATUS_ACCEPTED,
+    DRAFT_STATUS_PENDING,
+    DRAFT_STATUS_SKIPPED,
+)
 from executive_cli.models import (
     Area,
     BusyBlock,
@@ -27,10 +40,13 @@ from executive_cli.models import (
     Commitment,
     Decision,
     Email,
+    IngestDocument,
+    IngestLog,
     Person,
     Project,
     Settings,
     Task,
+    TaskDraft,
     TaskEmailLink,
     TaskPriority,
     TaskStatus,
@@ -50,6 +66,7 @@ from executive_cli.sync_service import (
     sync_calendar_primary,
     sync_mailbox,
 )
+from executive_cli.task_service import TaskServiceError, create_task_record
 from executive_cli.secret_store import (
     DEFAULT_CALDAV_KEYCHAIN_SERVICE,
     DEFAULT_IMAP_KEYCHAIN_SERVICE,
@@ -78,6 +95,7 @@ task_app = typer.Typer(help="Manage GTD tasks.")
 plan_app = typer.Typer(help="Manage deterministic day planning.")
 review_app = typer.Typer(help="Weekly review reports.")
 sync_app = typer.Typer(help="Run combined external sync orchestration.")
+ingest_app = typer.Typer(help="Ingest task candidates from meetings, dialogues, and email.")
 secret_app = typer.Typer(help="Manage secure secret storage (macOS Keychain).")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
@@ -90,6 +108,7 @@ app.add_typer(people_app, name="people")
 app.add_typer(project_app, name="project")
 app.add_typer(review_app, name="review")
 app.add_typer(sync_app, name="sync")
+app.add_typer(ingest_app, name="ingest")
 app.add_typer(secret_app, name="secret")
 app.add_typer(task_app, name="task")
 app.add_typer(plan_app, name="plan")
@@ -415,6 +434,209 @@ def _run_mail_hourly_once() -> None:
             connector=ImapConnector.from_env(),
             mailbox=IMAP_SCOPE_INBOX,
         )
+
+
+def _print_ingest_summary(summary) -> None:
+    print(
+        "[green]Ingest complete.[/green] "
+        f"processed={summary.processed_documents} failed={summary.failed_documents} pending={summary.pending_documents} "
+        f"extracted={summary.extracted} auto_created={summary.auto_created} drafted={summary.drafted} skipped={summary.skipped}"
+    )
+
+
+@ingest_app.command("meeting")
+def ingest_meeting(
+    file_path: str = typer.Argument(..., help="Path to meeting notes file."),
+    title: str | None = typer.Option(None, "--title", help="Optional source title."),
+) -> None:
+    """Process a meeting protocol and extract task candidates."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        summary = ingest_meeting_file(
+            session,
+            path=file_path,
+            title=title,
+            now_iso=_now_iso(),
+        )
+    _print_ingest_summary(summary)
+
+
+@ingest_app.command("dialogue")
+def ingest_dialogue(
+    file_path: str = typer.Argument(..., help="Path to dialogue transcript file."),
+    title: str | None = typer.Option(None, "--title", help="Optional source title."),
+) -> None:
+    """Process an assistant dialogue transcript and extract task candidates."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        summary = ingest_dialogue_file(
+            session,
+            path=file_path,
+            title=title,
+            now_iso=_now_iso(),
+        )
+    _print_ingest_summary(summary)
+
+
+@ingest_app.command("email")
+def ingest_email(
+    since: str | None = typer.Option(None, "--since", help="Process emails received on/after YYYY-MM-DD."),
+    limit: int = typer.Option(100, "--limit", help="Max emails to process in one run."),
+) -> None:
+    """Process incoming work emails from local metadata store."""
+    since_date = _parse_date(since) if since else None
+    with Session(get_engine(ensure_directory=True)) as session:
+        summary = ingest_email_channel(
+            session,
+            since=since_date,
+            limit=limit,
+            now_iso=_now_iso(),
+        )
+    _print_ingest_summary(summary)
+
+
+@ingest_app.command("review")
+def ingest_review(
+    limit: int = typer.Option(50, "--limit", help="Max pending drafts to display."),
+) -> None:
+    """Show pending task drafts for human review."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        drafts = session.exec(
+            select(TaskDraft)
+            .where(TaskDraft.status == DRAFT_STATUS_PENDING)
+            .order_by(TaskDraft.confidence.desc(), TaskDraft.created_at, TaskDraft.id)
+            .limit(limit)
+        ).all()
+
+    if not drafts:
+        typer.echo("No pending drafts.")
+        return
+
+    typer.echo("id | confidence | source | title | dedup")
+    for draft in drafts:
+        dedup = draft.dedup_flag or "-"
+        typer.echo(
+            f'{draft.id} | {draft.confidence:.2f} | {draft.source_channel} | "{draft.title}" | {dedup}'
+        )
+
+
+@ingest_app.command("accept")
+def ingest_accept(
+    draft_id: int = typer.Argument(..., help="Draft ID to accept."),
+) -> None:
+    """Accept a pending draft and create a task."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        draft = session.get(TaskDraft, draft_id)
+        if draft is None:
+            raise typer.BadParameter(f"Draft {draft_id} not found.")
+        if draft.status != DRAFT_STATUS_PENDING:
+            raise typer.BadParameter(f"Draft {draft_id} is not pending.")
+
+        now_iso = _now_iso()
+        try:
+            task = create_task_record(
+                session,
+                title=draft.title,
+                status=TaskStatus(draft.suggested_status),
+                priority=TaskPriority(draft.suggested_priority),
+                estimate_min=draft.estimate_min,
+                due_date=draft.due_date,
+                waiting_on=draft.waiting_on,
+                ping_at=draft.ping_at,
+                commitment_id=draft.commitment_hint,
+                project_id=None,
+                area_id=None,
+                from_email_id=draft.source_email_id,
+                now_iso=now_iso,
+                link_type="origin",
+            )
+        except (TaskServiceError, ValueError) as exc:
+            session.rollback()
+            raise typer.BadParameter(str(exc)) from exc
+
+        draft.status = DRAFT_STATUS_ACCEPTED
+        draft.reviewed_at = now_iso
+        session.add(draft)
+        if draft.source_document_id is not None:
+            session.add(
+                IngestLog(
+                    document_id=draft.source_document_id,
+                    action="accepted_from_draft",
+                    task_id=task.id,
+                    draft_id=draft.id,
+                    confidence=draft.confidence,
+                    details_json=json.dumps({"title": draft.title}, ensure_ascii=False),
+                    created_at=now_iso,
+                )
+            )
+        session.commit()
+        session.refresh(task)
+        typer.echo(_format_task(task))
+
+
+@ingest_app.command("skip")
+def ingest_skip(
+    draft_id: int = typer.Argument(..., help="Draft ID to skip."),
+) -> None:
+    """Skip a pending draft."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        draft = session.get(TaskDraft, draft_id)
+        if draft is None:
+            raise typer.BadParameter(f"Draft {draft_id} not found.")
+        if draft.status != DRAFT_STATUS_PENDING:
+            raise typer.BadParameter(f"Draft {draft_id} is not pending.")
+
+        now_iso = _now_iso()
+        draft.status = DRAFT_STATUS_SKIPPED
+        draft.reviewed_at = now_iso
+        session.add(draft)
+        if draft.source_document_id is not None:
+            session.add(
+                IngestLog(
+                    document_id=draft.source_document_id,
+                    action="skipped_draft",
+                    draft_id=draft.id,
+                    confidence=draft.confidence,
+                    details_json=json.dumps({"title": draft.title}, ensure_ascii=False),
+                    created_at=now_iso,
+                )
+            )
+        session.commit()
+        typer.echo(f"draft_id={draft.id} status={draft.status}")
+
+
+@ingest_app.command("status")
+def ingest_status() -> None:
+    """Show ingestion pipeline counters."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        pending_docs = session.exec(
+            select(sa.func.count(IngestDocument.id)).where(IngestDocument.status == DOC_STATUS_PENDING)
+        ).one()
+        processed_docs = session.exec(
+            select(sa.func.count(IngestDocument.id)).where(IngestDocument.status == DOC_STATUS_PROCESSED)
+        ).one()
+        failed_docs = session.exec(
+            select(sa.func.count(IngestDocument.id)).where(IngestDocument.status == DOC_STATUS_FAILED)
+        ).one()
+        pending_drafts = session.exec(
+            select(sa.func.count(TaskDraft.id)).where(TaskDraft.status == DRAFT_STATUS_PENDING)
+        ).one()
+
+        auto_created = session.exec(
+            select(sa.func.count(IngestLog.id)).where(IngestLog.action == "auto_created")
+        ).one()
+        drafted = session.exec(
+            select(sa.func.count(IngestLog.id)).where(IngestLog.action == "drafted")
+        ).one()
+        skipped = session.exec(
+            select(sa.func.count(IngestLog.id)).where(IngestLog.action.in_(["skipped", "dedup_hit", "skipped_draft"]))
+        ).one()
+
+    typer.echo(f"documents_pending={pending_docs}")
+    typer.echo(f"documents_processed={processed_docs}")
+    typer.echo(f"documents_failed={failed_docs}")
+    typer.echo(f"drafts_pending={pending_drafts}")
+    typer.echo(f"auto_created_total={auto_created}")
+    typer.echo(f"drafted_total={drafted}")
+    typer.echo(f"skipped_total={skipped}")
 
 
 def _resolve_secret_account(username: str | None, env_var: str, label: str) -> str:
@@ -1106,36 +1328,31 @@ def task_capture(
         else:
             raise typer.BadParameter("Task title must not be empty.")
 
-        task = Task(
-            title=resolved_title,
-            status=parsed_status,
-            priority=parsed_priority,
-            estimate_min=estimate,
-            due_date=due_date,
-            area_id=area_id,
-            project_id=project_id,
-            commitment_id=cmt_id,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(task)
-        session.flush()
-
-        if from_email is not None:
-            session.add(
-                TaskEmailLink(
-                    task_id=task.id,
-                    email_id=from_email,
-                    link_type="origin",
-                    created_at=now,
-                )
+        try:
+            task = create_task_record(
+                session,
+                title=resolved_title,
+                status=parsed_status,
+                priority=parsed_priority,
+                estimate_min=estimate,
+                due_date=due_date,
+                area_id=area_id,
+                project_id=project_id,
+                commitment_id=cmt_id,
+                now_iso=now,
+                from_email_id=from_email,
             )
+        except TaskServiceError as exc:
+            session.rollback()
+            raise typer.BadParameter(str(exc)) from exc
 
         try:
             session.commit()
         except sa.exc.IntegrityError as exc:
             session.rollback()
-            raise typer.BadParameter(f"Task {task.id} is already linked to email {from_email}.") from exc
+            raise typer.BadParameter(
+                f"Task {task.id} is already linked to email {from_email}."
+            ) from exc
         session.refresh(task)
         typer.echo(_format_task(task))
 
