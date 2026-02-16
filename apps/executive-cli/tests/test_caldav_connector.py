@@ -9,6 +9,7 @@ from executive_cli.connectors.caldav import (
     CalDavConnector,
     CalendarConnectorError,
     RemoteCalendarEvent,
+    _build_sync_window,
     _decode_ical_text,
     _parse_ical_events,
     _parse_ical_time_fragment,
@@ -59,6 +60,28 @@ def test_from_env_loads_password_from_keychain_when_env_missing(monkeypatch) -> 
 
     connector = CalDavConnector.from_env()
     assert connector.password == "secret-from-keychain"
+
+
+def test_build_sync_window_uses_env_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("EXECAS_CALDAV_SYNC_LOOKBACK_DAYS", "7")
+    monkeypatch.setenv("EXECAS_CALDAV_SYNC_LOOKAHEAD_DAYS", "21")
+
+    window_start, window_end = _build_sync_window()
+    now_utc = datetime.now(timezone.utc)
+
+    assert abs((now_utc - window_start).total_seconds() - (7 * 86400)) < 120
+    assert abs((window_end - now_utc).total_seconds() - (21 * 86400)) < 120
+
+
+def test_build_sync_window_invalid_env_falls_back_to_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("EXECAS_CALDAV_SYNC_LOOKBACK_DAYS", "-5")
+    monkeypatch.setenv("EXECAS_CALDAV_SYNC_LOOKAHEAD_DAYS", "bad-value")
+
+    window_start, window_end = _build_sync_window()
+    now_utc = datetime.now(timezone.utc)
+
+    assert abs((now_utc - window_start).total_seconds() - (30 * 86400)) < 120
+    assert abs((window_end - now_utc).total_seconds() - (365 * 86400)) < 120
 
 
 def test_fetch_events_short_circuits_when_ctag_unchanged(monkeypatch) -> None:

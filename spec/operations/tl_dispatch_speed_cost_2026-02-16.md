@@ -95,11 +95,11 @@ Acceptance:
 
 | Commit | Task | Role | Verdict | Evidence |
 |---|---|---|---|---|
-| pending | SA-OPT-01 | System Analyst + Product Owner | pending | task package |
-| pending | ARCH-OPT-01 | Chief Architect | pending | architecture verdict |
-| pending | EA-OPT-01 | Executive Assistant | pending | code + tests + gates |
-| pending | QA-OPT-01 | QA/SET | pending | independent quality verdict |
-| pending | OPS-OPT-01 | DevOps/SRE | pending | runbook update |
+| current batch | SA-OPT-01 | System Analyst + Product Owner | accepted | `spec/TASKS/TASK_TL_SPEED_COST_01.md` |
+| current batch | ARCH-OPT-01 | Chief Architect | accepted | `spec/operations/architecture_review_speed_cost_2026-02-16.md` |
+| current batch | EA-OPT-01 | Executive Assistant | accepted | code changes + passing gates |
+| current batch | QA-OPT-01 | QA/SET | accepted | `spec/operations/qa_verdict_speed_cost_2026-02-16.md` |
+| current batch | OPS-OPT-01 | DevOps/SRE | accepted | `spec/operations/hourly_sync.md` update |
 
 ## Parallel lanes
 
@@ -111,3 +111,9 @@ Acceptance:
 | D | QA-OPT-01 | QA/SET | hard(C) | `apps/executive-cli/tests/*` |
 | E | OPS-OPT-01 | DevOps/SRE | soft(C) | `spec/operations/hourly_sync.md` |
 
+## Execution snapshot
+
+- Configured participating roles: 7
+- Observed active role sessions in this batch execution: 1
+- Configured max parallel lanes: 5
+- Observed max parallel lanes during implementation: 1

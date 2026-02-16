@@ -78,11 +78,24 @@ def sync_calendar_primary(
         )
         raise
 
-    existing_rows = session.exec(
-        select(BusyBlock)
-        .where(BusyBlock.calendar_id == calendar.id)
-        .where(BusyBlock.source == CALDAV_SOURCE)
-    ).all()
+    if batch.full_snapshot:
+        existing_rows = session.exec(
+            select(BusyBlock)
+            .where(BusyBlock.calendar_id == calendar.id)
+            .where(BusyBlock.source == CALDAV_SOURCE)
+        ).all()
+    else:
+        candidate_external_ids = {event.external_id for event in batch.events}
+        candidate_external_ids.update(batch.deleted_external_ids)
+        if candidate_external_ids:
+            existing_rows = session.exec(
+                select(BusyBlock)
+                .where(BusyBlock.calendar_id == calendar.id)
+                .where(BusyBlock.source == CALDAV_SOURCE)
+                .where(BusyBlock.external_id.in_(candidate_external_ids))
+            ).all()
+        else:
+            existing_rows = []
     existing_by_external_id = {
         row.external_id: row for row in existing_rows if row.external_id is not None
     }
@@ -263,18 +276,22 @@ def sync_mailbox(
     new_cursor = f"{batch.uidvalidity}:{batch.uidnext}"
     now_iso = datetime.now(_utc_tz.utc).isoformat()
 
-    existing_rows = session.exec(
-        select(Email)
-        .where(Email.source == IMAP_SOURCE)
-    ).all()
-    existing_by_external_id = {row.external_id: row for row in existing_rows}
-
     # If a provider serves duplicate Message-ID entries in one batch, keep the latest UID.
     deduped_messages = {
         message.external_id: message
         for message in sorted(batch.messages, key=lambda message: message.mailbox_uid)
         if message.external_id
     }
+    incoming_external_ids = tuple(deduped_messages.keys())
+    if incoming_external_ids:
+        existing_rows = session.exec(
+            select(Email)
+            .where(Email.source == IMAP_SOURCE)
+            .where(Email.external_id.in_(incoming_external_ids))
+        ).all()
+    else:
+        existing_rows = []
+    existing_by_external_id = {row.external_id: row for row in existing_rows}
 
     inserted = 0
     updated = 0

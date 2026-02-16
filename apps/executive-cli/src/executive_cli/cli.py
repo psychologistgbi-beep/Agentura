@@ -344,29 +344,33 @@ def sync_hourly(
         min=0,
         help="Exponential backoff base in seconds (base * 2^attempt).",
     ),
+    parallel: bool = typer.Option(
+        True,
+        "--parallel/--sequential",
+        help="Run calendar and mail sync concurrently (default) or sequentially.",
+    ),
 ) -> None:
-    """Run calendar and mail sync sequentially with deterministic retries/backoff."""
-    with Session(get_engine(ensure_directory=True)) as session:
-        outcome = run_hourly_sync(
-            run_calendar=lambda: sync_calendar_primary(session, connector=CalDavConnector.from_env()),
-            run_mail=lambda: sync_mailbox(
-                session,
-                connector=ImapConnector.from_env(),
-                mailbox=IMAP_SCOPE_INBOX,
-            ),
-            retries=retries,
-            backoff_sec=backoff_sec,
-        )
+    """Run calendar and mail sync with deterministic retries/backoff."""
+    outcome = run_hourly_sync(
+        run_calendar=lambda: _run_calendar_hourly_once(),
+        run_mail=lambda: _run_mail_hourly_once(),
+        retries=retries,
+        backoff_sec=backoff_sec,
+        parallel=parallel,
+    )
 
     for source_outcome in (outcome.calendar, outcome.mail):
         if source_outcome.success:
-            print(f"[green]{source_outcome.source} sync ok.[/green] attempts={source_outcome.attempts}")
+            print(
+                f"[green]{source_outcome.source} sync ok.[/green] "
+                f"attempts={source_outcome.attempts} elapsed_sec={source_outcome.elapsed_sec:.2f}"
+            )
             continue
 
         reason = source_outcome.reason or "unknown"
         print(
             f"[yellow]{source_outcome.source} degraded.[/yellow] "
-            f"attempts={source_outcome.attempts} reason={reason}"
+            f"attempts={source_outcome.attempts} elapsed_sec={source_outcome.elapsed_sec:.2f} reason={reason}"
         )
         if source_outcome.source == "calendar":
             print(
@@ -380,14 +384,37 @@ def sync_hourly(
             )
 
     if outcome.exit_code == 0:
-        print("[green]Hourly sync complete.[/green] status=ok")
+        print(
+            "[green]Hourly sync complete.[/green] "
+            f"status=ok mode={'parallel' if parallel else 'sequential'} elapsed_sec={outcome.elapsed_sec:.2f}"
+        )
         return
     if outcome.exit_code == 2:
-        print("[yellow]Hourly sync complete.[/yellow] status=degraded")
+        print(
+            "[yellow]Hourly sync complete.[/yellow] "
+            f"status=degraded mode={'parallel' if parallel else 'sequential'} elapsed_sec={outcome.elapsed_sec:.2f}"
+        )
         raise typer.Exit(code=2)
 
-    print("[red]Hourly sync failed.[/red] status=degraded")
+    print(
+        "[red]Hourly sync failed.[/red] "
+        f"status=degraded mode={'parallel' if parallel else 'sequential'} elapsed_sec={outcome.elapsed_sec:.2f}"
+    )
     raise typer.Exit(code=1)
+
+
+def _run_calendar_hourly_once() -> None:
+    with Session(get_engine(ensure_directory=True)) as session:
+        sync_calendar_primary(session, connector=CalDavConnector.from_env())
+
+
+def _run_mail_hourly_once() -> None:
+    with Session(get_engine(ensure_directory=True)) as session:
+        sync_mailbox(
+            session,
+            connector=ImapConnector.from_env(),
+            mailbox=IMAP_SCOPE_INBOX,
+        )
 
 
 def _resolve_secret_account(username: str | None, env_var: str, label: str) -> str:

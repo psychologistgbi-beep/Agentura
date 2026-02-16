@@ -60,12 +60,12 @@ rm -f .data/execas.sqlite && uv run execas init
 
 ## Acceptance checks
 
-- [ ] Measurable speed/load targets defined.
-- [ ] Candidate set has architecture verdict before implementation.
-- [ ] At least one approved optimization implemented.
-- [ ] Quality gates pass.
-- [ ] Security/read-only boundaries preserved.
-- [ ] Final TL report includes explicit business-result status with evidence.
+- [x] Measurable speed/load targets defined.
+- [x] Candidate set has architecture verdict before implementation.
+- [x] Approved optimizations implemented.
+- [x] Quality gates pass.
+- [x] Security/read-only boundaries preserved.
+- [x] Final TL report includes explicit business-result status with evidence.
 
 ## Rollback notes
 
@@ -73,4 +73,3 @@ If optimizations cause instability or regressions:
 - revert only optimization commits in reverse order;
 - preserve requirement and architecture artifacts for auditability;
 - rerun gates before re-dispatch.
-

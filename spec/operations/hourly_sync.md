@@ -4,7 +4,7 @@
 
 ```bash
 cd /Users/gaidabura/Agentura/apps/executive-cli
-uv run execas sync hourly --retries 2 --backoff-sec 5
+uv run execas sync hourly --retries 2 --backoff-sec 5 --parallel
 ```
 
 Credential setup helper for EA live checks:
@@ -27,7 +27,21 @@ Weekday sanity-check rule (operations):
 Default policy:
 - `--retries 2` per source (calendar and mail separately)
 - `--backoff-sec 5`
+- `--parallel` (default): calendar/mail are executed concurrently with isolated DB sessions.
 - backoff formula: `delay = backoff_sec * 2^attempt` (attempt starts from `0` for first retry)
+
+Sequential mode is available when lower external concurrency is preferred:
+```bash
+uv run execas sync hourly --retries 2 --backoff-sec 5 --sequential
+```
+
+Runtime telemetry in CLI output:
+- `attempts=<n>` and `elapsed_sec=<seconds>` for each source;
+- final line includes `mode=<parallel|sequential>` and total `elapsed_sec`.
+
+CalDAV sync-window tuning (optional, load control):
+- `EXECAS_CALDAV_SYNC_LOOKBACK_DAYS` (default `30`)
+- `EXECAS_CALDAV_SYNC_LOOKAHEAD_DAYS` (default `365`)
 
 ## Exit codes
 
@@ -41,7 +55,7 @@ Default policy:
 
 ```cron
 # Every hour at minute 0
-0 * * * * cd /Users/gaidabura/Agentura/apps/executive-cli && uv run execas sync hourly --retries 2 --backoff-sec 5 >> /tmp/execas-hourly-sync.log 2>&1
+0 * * * * cd /Users/gaidabura/Agentura/apps/executive-cli && uv run execas sync hourly --retries 2 --backoff-sec 5 --parallel >> /tmp/execas-hourly-sync.log 2>&1
 
 # Optional sanity check (weekday alert hook to monitoring wrapper)
 5 * * * 1-5 cd /Users/gaidabura/Agentura/apps/executive-cli && uv run execas calendar next-week --source yandex_caldav >> /tmp/execas-next-week.log 2>&1
@@ -51,7 +65,7 @@ Default policy:
 
 Create a LaunchAgent plist with:
 - `StartInterval = 3600`
-- `ProgramArguments = ["/usr/bin/env", "uv", "run", "execas", "sync", "hourly", "--retries", "2", "--backoff-sec", "5"]`
+- `ProgramArguments = ["/usr/bin/env", "uv", "run", "execas", "sync", "hourly", "--retries", "2", "--backoff-sec", "5", "--parallel"]`
 - `WorkingDirectory = /Users/gaidabura/Agentura/apps/executive-cli`
 
 ### Windows Task Scheduler
@@ -59,7 +73,7 @@ Create a LaunchAgent plist with:
 Configure an hourly trigger and run:
 
 ```powershell
-uv run execas sync hourly --retries 2 --backoff-sec 5
+uv run execas sync hourly --retries 2 --backoff-sec 5 --parallel
 ```
 
 Working directory:
@@ -76,7 +90,7 @@ Recommended ops actions:
 1. Check network reachability and endpoint availability.
 2. Verify connector env vars are present (without printing secret values).
 3. Re-run manually with same retry policy:
-   `uv run execas sync hourly --retries 2 --backoff-sec 5`
+   `uv run execas sync hourly --retries 2 --backoff-sec 5 --parallel`
 4. Re-check imported meetings:
    `uv run execas calendar next-week --source yandex_caldav`
 5. If source remains unavailable, run manual fallback commands below.

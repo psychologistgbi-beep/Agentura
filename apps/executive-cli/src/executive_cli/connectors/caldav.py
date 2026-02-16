@@ -19,8 +19,8 @@ from executive_cli.secret_store import (
 )
 
 logger = logging.getLogger(__name__)
-_SYNC_LOOKBACK_DAYS = 30
-_SYNC_LOOKAHEAD_DAYS = 365
+_SYNC_LOOKBACK_DAYS_DEFAULT = 30
+_SYNC_LOOKAHEAD_DAYS_DEFAULT = 365
 
 
 class CalendarConnectorError(RuntimeError):
@@ -459,8 +459,34 @@ _FieldValue = tuple[dict[str, str], str]
 
 
 def _build_sync_window() -> tuple[datetime, datetime]:
+    lookback_days = _read_sync_window_days(
+        "EXECAS_CALDAV_SYNC_LOOKBACK_DAYS",
+        _SYNC_LOOKBACK_DAYS_DEFAULT,
+    )
+    lookahead_days = _read_sync_window_days(
+        "EXECAS_CALDAV_SYNC_LOOKAHEAD_DAYS",
+        _SYNC_LOOKAHEAD_DAYS_DEFAULT,
+    )
     now_utc = datetime.now(timezone.utc)
-    return (now_utc - timedelta(days=_SYNC_LOOKBACK_DAYS), now_utc + timedelta(days=_SYNC_LOOKAHEAD_DAYS))
+    return (
+        now_utc - timedelta(days=lookback_days),
+        now_utc + timedelta(days=lookahead_days),
+    )
+
+
+def _read_sync_window_days(env_var: str, default: int) -> int:
+    value = (os.getenv(env_var) or "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        logger.warning("caldav_sync_window_invalid env=%s value=%s", env_var, value)
+        return default
+    if parsed < 0:
+        logger.warning("caldav_sync_window_invalid env=%s value=%s", env_var, value)
+        return default
+    return parsed
 
 
 def _parse_ical_events(

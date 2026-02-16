@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
@@ -20,12 +21,14 @@ class SourceSyncOutcome:
     success: bool
     attempts: int
     reason: str | None = None
+    elapsed_sec: float = 0.0
 
 
 @dataclass(frozen=True)
 class HourlySyncOutcome:
     calendar: SourceSyncOutcome
     mail: SourceSyncOutcome
+    elapsed_sec: float = 0.0
 
     @property
     def exit_code(self) -> int:
@@ -43,27 +46,54 @@ def run_hourly_sync(
     retries: int = 2,
     backoff_sec: int = 5,
     sleep_fn: SleepFn = time.sleep,
+    parallel: bool = True,
 ) -> HourlySyncOutcome:
     if retries < 0:
         raise ValueError("--retries must be >= 0.")
     if backoff_sec < 0:
         raise ValueError("--backoff-sec must be >= 0.")
 
-    calendar_outcome = _run_source(
-        source="calendar",
-        operation=run_calendar,
-        retries=retries,
-        backoff_sec=backoff_sec,
-        sleep_fn=sleep_fn,
+    started_at = time.perf_counter()
+    if parallel:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="execas-sync") as pool:
+            calendar_future = pool.submit(
+                _run_source,
+                source="calendar",
+                operation=run_calendar,
+                retries=retries,
+                backoff_sec=backoff_sec,
+                sleep_fn=sleep_fn,
+            )
+            mail_future = pool.submit(
+                _run_source,
+                source="mail",
+                operation=run_mail,
+                retries=retries,
+                backoff_sec=backoff_sec,
+                sleep_fn=sleep_fn,
+            )
+            calendar_outcome = calendar_future.result()
+            mail_outcome = mail_future.result()
+    else:
+        calendar_outcome = _run_source(
+            source="calendar",
+            operation=run_calendar,
+            retries=retries,
+            backoff_sec=backoff_sec,
+            sleep_fn=sleep_fn,
+        )
+        mail_outcome = _run_source(
+            source="mail",
+            operation=run_mail,
+            retries=retries,
+            backoff_sec=backoff_sec,
+            sleep_fn=sleep_fn,
+        )
+    return HourlySyncOutcome(
+        calendar=calendar_outcome,
+        mail=mail_outcome,
+        elapsed_sec=time.perf_counter() - started_at,
     )
-    mail_outcome = _run_source(
-        source="mail",
-        operation=run_mail,
-        retries=retries,
-        backoff_sec=backoff_sec,
-        sleep_fn=sleep_fn,
-    )
-    return HourlySyncOutcome(calendar=calendar_outcome, mail=mail_outcome)
 
 
 def _run_source(
@@ -74,6 +104,7 @@ def _run_source(
     backoff_sec: int,
     sleep_fn: SleepFn,
 ) -> SourceSyncOutcome:
+    started_at = time.perf_counter()
     last_error: Exception | None = None
     for attempt in range(retries + 1):
         try:
@@ -82,6 +113,7 @@ def _run_source(
                 source=source,
                 success=True,
                 attempts=attempt + 1,
+                elapsed_sec=time.perf_counter() - started_at,
             )
         except Exception as exc:
             last_error = exc
@@ -109,6 +141,7 @@ def _run_source(
         success=False,
         attempts=retries + 1,
         reason=_sanitize_reason(source=source, error=last_error),
+        elapsed_sec=time.perf_counter() - started_at,
     )
 
 

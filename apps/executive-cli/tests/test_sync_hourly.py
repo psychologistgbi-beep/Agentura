@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -45,6 +46,7 @@ def test_run_hourly_sync_partial_failure_keeps_second_source_and_returns_exit_tw
         retries=0,
         backoff_sec=5,
         sleep_fn=lambda _: None,
+        parallel=False,
     )
 
     assert calls == ["calendar", "mail"]
@@ -60,6 +62,7 @@ def test_run_hourly_sync_both_fail_returns_exit_one() -> None:
         retries=0,
         backoff_sec=5,
         sleep_fn=lambda _: None,
+        parallel=False,
     )
 
     assert outcome.calendar.success is False
@@ -90,6 +93,7 @@ def test_run_hourly_sync_retries_per_source_with_exponential_backoff() -> None:
         retries=2,
         backoff_sec=5,
         sleep_fn=backoff_calls.append,
+        parallel=False,
     )
 
     assert outcome.calendar.success is True
@@ -97,6 +101,31 @@ def test_run_hourly_sync_retries_per_source_with_exponential_backoff() -> None:
     assert outcome.calendar.attempts == 3
     assert outcome.mail.attempts == 2
     assert backoff_calls == [5.0, 10.0, 5.0]
+
+
+def test_run_hourly_sync_parallel_reduces_wall_time() -> None:
+    def _calendar_ok():
+        time.sleep(0.2)
+        return None
+
+    def _mail_ok():
+        time.sleep(0.2)
+        return None
+
+    start = time.perf_counter()
+    outcome = run_hourly_sync(
+        run_calendar=_calendar_ok,
+        run_mail=_mail_ok,
+        retries=0,
+        backoff_sec=5,
+        sleep_fn=lambda _: None,
+        parallel=True,
+    )
+    elapsed = time.perf_counter() - start
+
+    assert outcome.exit_code == 0
+    # Sequential execution would be around 0.4s; parallel should stay materially lower.
+    assert elapsed < 0.35
 
 
 def test_sync_hourly_cli_does_not_echo_secret_on_degraded_failure(tmp_path, monkeypatch) -> None:
