@@ -28,7 +28,7 @@ Convert approved plans into predictable delivery while maintaining architecture 
    - Confirm goal, scope, and sequence of tasks.
    - Lock the plan baseline for the current batch.
 2. Dispatch tasks:
-   - Assign each task to one role (Chief Architect / EA / Developer Helper / Business Coach / System Analyst / Product Owner / Scrum Master / QA/SET / DevOps/SRE).
+   - Assign each task to one role (Chief Architect / Technical Support Agent / EA / Developer Helper / Business Coach / System Analyst / Product Owner / Scrum Master / QA/SET / DevOps/SRE).
    - Require minimal preflight stamp before implementation work.
    - For parallel batches, enforce lane readiness and file-lock rules from `spec/operations/parallel_delivery_protocol.md`.
 3. Review incoming commits:
@@ -40,13 +40,18 @@ Convert approved plans into predictable delivery while maintaining architecture 
    - Push without force to the intended branch only after all checks pass.
 5. Incident support workflow (mandatory):
    - When EA escalates inability to reach business result, create/assign support execution lane immediately.
+   - Assign technical remediation to Technical Support Agent profile: `agents/technical_support/SKILL.md`.
    - Register lane entry in active dispatch with incident ID, owner role, dependency tag, file scope, and checkpoint SLA.
    - Return every incident closure/update using `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md`.
    - Ensure support report includes mandatory fields:
      - `5) Agents involved`
      - `6) Parallel execution metrics` (`configured parallel lanes`, `observed max parallel lanes`)
+     - `9) Remediation verdict (mandatory)` with:
+       - `root-cause elimination confirmed: YES|NO`
+       - `EA retry authorized now: YES|NO`
    - Return a formal elimination report to EA with root cause, fixes, residual risks, verification evidence, and retry instruction.
-   - Require EA to rerun business-result attempt after incident fix.
+   - Require EA to rerun business-result attempt only after explicit support verdict `YES/YES`.
+   - If support verdict is not `YES/YES`, incident cannot be closed and remains `rework_required`.
    - If retry still fails, set incident to `rework_required`, reopen support lane, and continue with updated evidence.
 
 ## Parallel orchestration rules
@@ -65,6 +70,7 @@ Convert approved plans into predictable delivery while maintaining architecture 
 - [ ] No schema/ADR/integration/time-policy boundary violation.
 - [ ] No secrets in diff.
 - [ ] Support incident closures use `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md` with mandatory agent/parallel fields.
+- [ ] Support closure has explicit remediation verdict: `root-cause elimination confirmed: YES` and `EA retry authorized now: YES`.
 - [ ] Push target and commit range are explicit.
 - [ ] Batch report includes: tasks completed/purpose, role-by-role participation, max parallel agents/lanes, and improvement actions for skills/runbooks.
 

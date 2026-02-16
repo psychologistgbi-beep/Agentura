@@ -48,10 +48,12 @@ Before support execution starts, TL records:
 2. TL creates support lane/agent assignment in this dispatch.
 3. TL returns support incident report using `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md`:
    - section `5) Agents involved (mandatory)`;
-   - section `6) Parallel execution metrics (mandatory)`.
+   - section `6) Parallel execution metrics (mandatory)`;
+   - section `9) Remediation verdict (mandatory)` with explicit `root-cause elimination confirmed` and `EA retry authorized now`.
 4. EA retries business result using retry instructions from report section `8) EA retry instruction`.
-5. If retry succeeds -> incident state is `resolved` or `partially_resolved`.
-6. If retry fails -> incident state is `rework_required`, EA attaches updated evidence, TL reopens support lane.
+5. EA retry is allowed only if section `9` verdict is `YES/YES`.
+6. If retry succeeds -> incident state is `resolved` or `partially_resolved`.
+7. If retry fails -> incident state is `rework_required`, EA attaches updated evidence, TL reopens support lane.
 
 ## Dispatch execution ledger (2026-02-15)
 

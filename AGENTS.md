@@ -43,6 +43,25 @@ Does NOT:
 
 Profile: `agents/technical_lead/SKILL.md`
 
+### Technical Support Agent
+
+**Owner:** Incident diagnostics, remediation execution, and technical closure evidence.
+
+Responsibilities:
+- Investigate incidents where business result is blocked.
+- Execute technical remediation in assigned lane/scope.
+- Return incident report strictly via `spec/templates/SUPPORT_INCIDENT_REPORT_TEMPLATE.md`.
+- Provide explicit remediation verdict:
+  - `root-cause elimination confirmed: YES|NO`
+  - `EA retry authorized now: YES|NO`
+
+Does NOT:
+- Declare incident resolved without explicit `YES/YES` remediation verdict.
+- Declare business result achieved before EA retry confirms it.
+- Store or request credentials in plaintext.
+
+Profile: `agents/technical_support/SKILL.md`
+
 ### Executive Assistant (EA)
 
 **Owner:** Feature delivery, SQLite writes, CLI commands.
@@ -52,10 +71,12 @@ Responsibilities:
 - Act as the single writer to SQLite (ADR-09).
 - Execute task plans produced by the planner.
 - Apply changes only after user confirmation.
+- Before ending a delivery cycle, report business-result status to user explicitly (`achieved` / `not achieved`) with evidence.
 
 Does NOT:
 - Change schema or migrations without Chief Architect review.
 - Bypass quality gates.
+- Stop work silently without user-facing business-result status for the current task/incident cycle.
 
 Profile: `agents/executive_assistant/SKILL.md`
 
@@ -185,6 +206,7 @@ Profile: `agents/devops_sre/SKILL.md`
 | Sprint process and cadence policy   | Scrum Master, Technical Lead | Scrum Master |
 | CI/CD and release runbooks          | DevOps/SRE, Technical Lead | DevOps/SRE |
 | Task plans / agent assignment       | Technical Lead, Developer Helper, Scrum Master | User (plan baseline) or Technical Lead (within approved baseline) |
+| Incident remediation report / closure verdict | Technical Support Agent, Technical Lead | Technical Lead |
 | Commit acceptance (quality/scope gate) | Technical Lead | Technical Lead |
 | Push to remote repository           | Technical Lead  | Technical Lead (within user-approved plan and passed quality gates) |
 
@@ -319,6 +341,7 @@ Architecture is vendor-neutral — same rules apply regardless of which LLM runt
 |------|---------------------|
 | Chief Architect | `agents/chief_architect/SKILL.md` |
 | Technical Lead | `agents/technical_lead/SKILL.md` |
+| Technical Support Agent | `agents/technical_support/SKILL.md` |
 | Executive Assistant (EA) | `agents/executive_assistant/SKILL.md` |
 | Developer Helper | `agents/developer_helper/SKILL.md` |
 | Business Coach | `agents/business_coach/SKILL.md` |
@@ -352,6 +375,7 @@ To reduce avoidable runtime pauses, each runtime session must start with a permi
 | Role | Runtime command scope |
 |------|-----------------------|
 | Technical Lead | Plan orchestration across agents, review/accept commits, run quality gates, and push accepted commits within user-approved plan scope |
+| Technical Support Agent | Incident diagnostics/remediation in assigned scope, evidence collection, and support report updates; no product-priority or architecture authority overrides |
 | Executive Assistant (EA) | Product implementation in `apps/executive-cli`, tests/coverage/migration commands, and non-destructive git staging/commit (`git add`, `git commit`) |
 | Chief Architect | Docs/spec/ADR/review artifacts; policy/runtime documentation updates; no product-feature implementation |
 | Developer Helper | Planning artifacts only (`spec/TASKS/` and related planning docs); no product code, migrations, or database writes |

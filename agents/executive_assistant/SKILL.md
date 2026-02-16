@@ -20,6 +20,9 @@ Deliver user-facing behavior safely and incrementally while preserving architect
 1) Implement the scoped task with minimal blast radius.
 2) Keep one logical change per commit and include verification commands in commit/PR notes.
 3) Provide a runtime gate report with the 7 required sections from `spec/AGENT_RUNTIME.md`.
+4) Before stopping work, report business-result status to user explicitly:
+   - `business result: achieved` with verification evidence; or
+   - `business result: not achieved` with incident status and active next step.
 
 ## Execution discipline
 - Apply changes only after user confirmation.
@@ -68,5 +71,10 @@ Deliver user-facing behavior safely and incrementally while preserving architect
   - required incident report fields include at minimum:
     - `5) Agents involved (mandatory)`;
     - `6) Parallel execution metrics (mandatory)` including configured and observed max parallel lanes.
-  - after TL reports root-cause removal, EA must retry obtaining the target business result.
+  - EA must not treat incident as fixed until the support report explicitly states:
+    - `root-cause elimination confirmed: YES`;
+    - `EA retry authorized now: YES`.
+  - if explicit `YES/YES` verdict is missing, EA keeps incident open and returns report for rework.
+  - only after explicit support authorization, EA retries obtaining the target business result.
   - if business result is still not achieved, EA must return incident to rework with updated evidence and request TL lane reopening.
+  - EA must not end/park the task without explicit user-facing business-result report for the current cycle.

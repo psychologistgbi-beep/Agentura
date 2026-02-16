@@ -12,7 +12,7 @@ from executive_cli.connectors.caldav import CalendarConnector
 from executive_cli.connectors.imap import MailConnector
 from executive_cli.db import PRIMARY_CALENDAR_SLUG
 from executive_cli.models import BusyBlock, Calendar, Email, SyncState
-from executive_cli.timeutil import dt_to_db
+from executive_cli.timeutil import db_to_dt, dt_to_db
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,11 @@ def sync_calendar_primary(
                     continue
                 if row.external_id in seen_external_ids:
                     continue
+                if batch.coverage_start is not None and batch.coverage_end is not None:
+                    row_start = db_to_dt(row.start_dt)
+                    row_end = db_to_dt(row.end_dt)
+                    if row_end <= batch.coverage_start or row_start >= batch.coverage_end:
+                        continue
                 if row.is_deleted == 0:
                     row.is_deleted = 1
                     session.add(row)

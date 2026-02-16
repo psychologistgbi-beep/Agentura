@@ -44,4 +44,9 @@ Status: <resolved|partially_resolved|rework_required>
   - <command>
 - expected business result:
   - <expected outcome>
+
+9) Remediation verdict (mandatory)
+- root-cause elimination confirmed: <YES|NO>
+- EA retry authorized now: <YES|NO>
+- notes: <short rationale>
 ```

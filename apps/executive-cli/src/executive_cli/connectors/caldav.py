@@ -12,7 +12,11 @@ from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from dateutil.rrule import rrulestr
+
 logger = logging.getLogger(__name__)
+_SYNC_LOOKBACK_DAYS = 30
+_SYNC_LOOKAHEAD_DAYS = 365
 
 
 class CalendarConnectorError(RuntimeError):
@@ -36,6 +40,8 @@ class CalendarSyncBatch:
     cursor_kind: str | None
     full_snapshot: bool
     deleted_external_ids: tuple[str, ...] = ()
+    coverage_start: datetime | None = None
+    coverage_end: datetime | None = None
 
 
 class CalendarConnector(Protocol):
@@ -87,42 +93,67 @@ class CalDavConnector:
         timezone_name: str,
     ) -> CalendarSyncBatch:
         del calendar_slug
-        collection_url = self._resolve_collection_url()
-        collection_props = self._fetch_collection_props(collection_url=collection_url)
-        ctag = collection_props.get("ctag")
+        window_start, window_end = _build_sync_window()
+        collection_urls = self._resolve_collection_urls()
+        ctag_parts: list[str] = []
+        for collection_url in collection_urls:
+            collection_props = self._fetch_collection_props(collection_url=collection_url)
+            ctag_value = collection_props.get("ctag") or "-"
+            ctag_parts.append(f"{collection_url}::{ctag_value}")
 
-        if ctag and cursor and cursor_kind == "ctag" and cursor == ctag:
+        multi_cursor = "|".join(sorted(ctag_parts)) if ctag_parts else None
+        multi_cursor_kind = "multi_ctag" if len(collection_urls) > 1 else "ctag"
+
+        if multi_cursor and cursor and cursor_kind == multi_cursor_kind and cursor == multi_cursor:
             return CalendarSyncBatch(
                 events=[],
-                cursor=ctag,
-                cursor_kind="ctag",
+                cursor=multi_cursor,
+                cursor_kind=multi_cursor_kind,
                 full_snapshot=False,
             )
 
-        events = self._fetch_full_snapshot(collection_url=collection_url, timezone_name=timezone_name)
+        events_by_external_id: dict[str, RemoteCalendarEvent] = {}
+        for collection_url in collection_urls:
+            collection_events = self._fetch_full_snapshot(
+                collection_url=collection_url,
+                timezone_name=timezone_name,
+                window_start=window_start,
+                window_end=window_end,
+                external_id_prefix=_collection_identity(collection_url),
+            )
+            for event in collection_events:
+                events_by_external_id[event.external_id] = event
+
         return CalendarSyncBatch(
-            events=events,
-            cursor=ctag,
-            cursor_kind="ctag" if ctag else cursor_kind,
+            events=sorted(events_by_external_id.values(), key=lambda event: event.external_id),
+            cursor=multi_cursor,
+            cursor_kind=multi_cursor_kind if multi_cursor else cursor_kind,
             full_snapshot=True,
+            coverage_start=window_start,
+            coverage_end=window_end,
         )
 
-    def _resolve_collection_url(self) -> str:
+    def _resolve_collection_urls(self) -> list[str]:
         parsed = urlparse(self.base_url)
-        # If caller passed a concrete path, treat it as a collection URL.
         if parsed.path and parsed.path != "/":
-            return self.base_url
+            return [self.base_url]
 
         calendar_home_url = self._discover_calendar_home_url(self.base_url)
         if calendar_home_url is None:
             raise CalendarConnectorError(
                 "CalDAV calendar-home-set discovery failed. Check endpoint settings."
             )
+        collection_urls = self._discover_calendar_collections(calendar_home_url)
+        if not collection_urls:
+            fallback = self._discover_primary_collection_url(calendar_home_url)
+            if fallback is None:
+                raise CalendarConnectorError("CalDAV calendar collection discovery failed.")
+            return [fallback]
+        return collection_urls
 
-        collection_url = self._discover_primary_collection_url(calendar_home_url)
-        if collection_url is None:
-            raise CalendarConnectorError("CalDAV calendar collection discovery failed.")
-        return collection_url
+    def _resolve_collection_url(self) -> str:
+        urls = self._resolve_collection_urls()
+        return urls[0]
 
     def _discover_calendar_home_url(self, root_url: str) -> str | None:
         root_body = """<?xml version="1.0" encoding="utf-8"?>
@@ -168,24 +199,33 @@ class CalDavConnector:
         return urljoin(principal_url, principal_home_href)
 
     def _discover_primary_collection_url(self, calendar_home_url: str) -> str | None:
+        collections = self._discover_calendar_collections(calendar_home_url)
+        if collections:
+            return collections[0]
+
+        return None
+
+    def _discover_calendar_collections(self, calendar_home_url: str) -> list[str]:
         body = """<?xml version="1.0" encoding="utf-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop>
     <d:resourcetype />
     <d:displayname />
+    <c:supported-calendar-component-set />
   </d:prop>
 </d:propfind>
 """
         payload = self._request_xml_url(calendar_home_url, method="PROPFIND", depth="1", body=body)
         root = self._parse_xml(payload)
 
-        candidates: list[tuple[str, str]] = []
+        candidates: list[tuple[str, str, bool]] = []
         for response in root.findall(f".//{{{self._NS_DAV}}}response"):
             href = (response.findtext(f"{{{self._NS_DAV}}}href") or "").strip()
             if not href:
                 continue
 
             is_calendar = False
+            supports_vevent = False
             display_name = ""
             for propstat in response.findall(f"{{{self._NS_DAV}}}propstat"):
                 status = (propstat.findtext(f"{{{self._NS_DAV}}}status") or "").strip()
@@ -200,23 +240,33 @@ class CalDavConnector:
                     is_calendar = True
                 if not display_name:
                     display_name = (prop.findtext(f"{{{self._NS_DAV}}}displayname") or "").strip()
+                supported = prop.find(f"{{{self._NS_CALDAV}}}supported-calendar-component-set")
+                if supported is not None:
+                    for comp in supported.findall(f"{{{self._NS_CALDAV}}}comp"):
+                        if (comp.attrib.get("name") or "").upper() == "VEVENT":
+                            supports_vevent = True
 
             if not is_calendar:
                 continue
-            candidates.append((urljoin(calendar_home_url, href), display_name))
+            candidates.append((urljoin(calendar_home_url, href), display_name, supports_vevent))
 
         if not candidates:
-            return None
+            return []
 
-        def _rank(item: tuple[str, str]) -> tuple[int, int, str]:
-            url, display_name = item
+        def _rank(item: tuple[str, str, bool]) -> tuple[int, int, int, str]:
+            url, display_name, supports_vevent = item
             path = urlparse(url).path.rstrip("/").lower()
             display_norm = display_name.strip().lower()
+            prefer_vevent = 0 if supports_vevent else 1
             prefer_events_path = 0 if path.endswith("/events") else 1
             prefer_primary_name = 0 if display_norm in {"primary", "default", "main"} else 1
-            return (prefer_events_path, prefer_primary_name, path)
+            return (prefer_vevent, prefer_events_path, prefer_primary_name, path)
 
-        return sorted(candidates, key=_rank)[0][0]
+        sorted_candidates = sorted(candidates, key=_rank)
+        event_collections = [url for url, _name, supports_vevent in sorted_candidates if supports_vevent]
+        if event_collections:
+            return event_collections
+        return [sorted_candidates[0][0]]
 
     def _extract_first_href(self, root: ET.Element, path: str) -> str | None:
         for prop in root.findall(f".//{{{self._NS_DAV}}}prop"):
@@ -276,6 +326,9 @@ class CalDavConnector:
         self,
         *,
         timezone_name: str,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+        external_id_prefix: str = "",
         collection_url: str | None = None,
     ) -> list[RemoteCalendarEvent]:
         body = """<?xml version="1.0" encoding="utf-8"?>
@@ -302,6 +355,8 @@ class CalDavConnector:
             default_timezone = ZoneInfo(timezone_name)
         except ZoneInfoNotFoundError:
             default_timezone = timezone.utc
+        window_start_value = window_start or datetime.min.replace(tzinfo=timezone.utc)
+        window_end_value = window_end or datetime.max.replace(tzinfo=timezone.utc)
 
         events_by_external_id: dict[str, RemoteCalendarEvent] = {}
         for response in root.findall(f".//{{{self._NS_DAV}}}response"):
@@ -309,7 +364,13 @@ class CalDavConnector:
             if calendar_data is None:
                 continue
 
-            for item in _parse_ical_events(calendar_data=calendar_data, default_timezone=default_timezone):
+            for item in _parse_ical_events(
+                calendar_data=calendar_data,
+                default_timezone=default_timezone,
+                window_start=window_start_value,
+                window_end=window_end_value,
+                external_id_prefix=external_id_prefix,
+            ):
                 event = RemoteCalendarEvent(
                     external_id=item.external_id,
                     start_dt=item.start_dt,
@@ -379,7 +440,24 @@ class _ParsedEvent:
     external_modified_at: str | None
 
 
-def _parse_ical_events(*, calendar_data: str, default_timezone: ZoneInfo | timezone) -> list[_ParsedEvent]:
+_FieldValue = tuple[dict[str, str], str]
+
+
+def _build_sync_window() -> tuple[datetime, datetime]:
+    now_utc = datetime.now(timezone.utc)
+    return (now_utc - timedelta(days=_SYNC_LOOKBACK_DAYS), now_utc + timedelta(days=_SYNC_LOOKAHEAD_DAYS))
+
+
+def _parse_ical_events(
+    *,
+    calendar_data: str,
+    default_timezone: ZoneInfo | timezone,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    external_id_prefix: str = "",
+) -> list[_ParsedEvent]:
+    window_start_value = window_start or datetime.min.replace(tzinfo=timezone.utc)
+    window_end_value = window_end or datetime.max.replace(tzinfo=timezone.utc)
     lines = _unfold_ical_lines(calendar_data)
     events: list[_ParsedEvent] = []
     in_event = False
@@ -392,9 +470,15 @@ def _parse_ical_events(*, calendar_data: str, default_timezone: ZoneInfo | timez
             current_lines = []
             continue
         if upper == "END:VEVENT":
-            parsed = _parse_single_event(current_lines, default_timezone=default_timezone)
-            if parsed is not None:
-                events.append(parsed)
+            events.extend(
+                _parse_event_instances(
+                    current_lines,
+                    default_timezone=default_timezone,
+                    window_start=window_start_value,
+                    window_end=window_end_value,
+                    external_id_prefix=external_id_prefix,
+                )
+            )
             in_event = False
             current_lines = []
             continue
@@ -417,12 +501,8 @@ def _unfold_ical_lines(calendar_data: str) -> list[str]:
     return unfolded
 
 
-def _parse_single_event(
-    lines: list[str],
-    *,
-    default_timezone: ZoneInfo | timezone,
-) -> _ParsedEvent | None:
-    values: dict[str, tuple[dict[str, str], str]] = {}
+def _parse_event_fields(lines: list[str]) -> dict[str, list[_FieldValue]]:
+    values: dict[str, list[_FieldValue]] = {}
     for line in lines:
         if ":" not in line:
             continue
@@ -435,39 +515,164 @@ def _parse_single_event(
                 continue
             key, value = item.split("=", maxsplit=1)
             params[key.upper()] = value.strip('"')
-        values[name] = (params, raw_value)
+        values.setdefault(name, []).append((params, raw_value))
+    return values
 
-    uid = (values.get("UID", ({}, ""))[1] or "").strip()
+
+def _first_field(values: dict[str, list[_FieldValue]], name: str) -> _FieldValue | None:
+    options = values.get(name.upper())
+    if not options:
+        return None
+    return options[0]
+
+
+def _all_fields(values: dict[str, list[_FieldValue]], name: str) -> list[_FieldValue]:
+    return values.get(name.upper(), [])
+
+
+def _parse_event_instances(
+    lines: list[str],
+    *,
+    default_timezone: ZoneInfo | timezone,
+    window_start: datetime,
+    window_end: datetime,
+    external_id_prefix: str = "",
+) -> list[_ParsedEvent]:
+    values = _parse_event_fields(lines)
+
+    uid_field = _first_field(values, "UID")
+    uid = (uid_field[1] if uid_field else "").strip()
     if not uid:
-        return None
+        return []
 
-    dtstart = _parse_ical_dt(values.get("DTSTART"), default_timezone=default_timezone)
+    dtstart_field = _first_field(values, "DTSTART")
+    dtstart = _parse_ical_dt(dtstart_field, default_timezone=default_timezone)
     if dtstart is None:
-        return None
-    dtend = _parse_ical_dt(values.get("DTEND"), default_timezone=default_timezone)
+        return []
+    dtend = _parse_ical_dt(_first_field(values, "DTEND"), default_timezone=default_timezone)
     if dtend is None:
-        dtend = _fallback_end_dt(values.get("DTSTART"), dtstart)
+        dtend = _fallback_end_dt(dtstart_field, dtstart)
     if dtstart >= dtend:
-        return None
+        return []
 
-    recurrence_id_raw = (values.get("RECURRENCE-ID", ({}, ""))[1] or "").strip()
-    external_id = uid if not recurrence_id_raw else f"{uid};{recurrence_id_raw}"
-
-    title_raw = values.get("SUMMARY", ({}, ""))[1].strip()
+    title_field = _first_field(values, "SUMMARY")
+    title_raw = title_field[1].strip() if title_field else ""
     title = _decode_ical_text(title_raw) if title_raw else None
 
-    modified = _parse_ical_dt(values.get("LAST-MODIFIED"), default_timezone=default_timezone)
+    modified = _parse_ical_dt(_first_field(values, "LAST-MODIFIED"), default_timezone=default_timezone)
     if modified is None:
-        modified = _parse_ical_dt(values.get("DTSTAMP"), default_timezone=default_timezone)
+        modified = _parse_ical_dt(_first_field(values, "DTSTAMP"), default_timezone=default_timezone)
     modified_iso = modified.astimezone(timezone.utc).isoformat() if modified is not None else None
 
-    return _ParsedEvent(
-        external_id=external_id,
-        start_dt=dtstart,
-        end_dt=dtend,
-        title=title,
-        external_modified_at=modified_iso,
-    )
+    recurrence_id_field = _first_field(values, "RECURRENCE-ID")
+    if recurrence_id_field is not None:
+        recurrence_id = _parse_ical_dt(recurrence_id_field, default_timezone=default_timezone)
+        recurrence_component = (
+            _format_recurrence_component(recurrence_id)
+            if recurrence_id is not None
+            else recurrence_id_field[1].strip()
+        )
+        instance = _ParsedEvent(
+            external_id=f"{external_id_prefix}{uid};{recurrence_component}",
+            start_dt=dtstart,
+            end_dt=dtend,
+            title=title,
+            external_modified_at=modified_iso,
+        )
+        return [instance] if _is_overlapping_window(instance.start_dt, instance.end_dt, window_start, window_end) else []
+
+    rrule_field = _first_field(values, "RRULE")
+    rdate_fields = _all_fields(values, "RDATE")
+    if rrule_field is None and not rdate_fields:
+        instance = _ParsedEvent(
+            external_id=f"{external_id_prefix}{uid}",
+            start_dt=dtstart,
+            end_dt=dtend,
+            title=title,
+            external_modified_at=modified_iso,
+        )
+        return [instance] if _is_overlapping_window(instance.start_dt, instance.end_dt, window_start, window_end) else []
+
+    duration = dtend - dtstart
+    excluded_occurrences_utc = {
+        ex.astimezone(timezone.utc).replace(microsecond=0)
+        for field in _all_fields(values, "EXDATE")
+        for ex in _parse_ical_dt_list(field, default_timezone=default_timezone)
+    }
+
+    instances_by_external_id: dict[str, _ParsedEvent] = {}
+
+    if rrule_field is not None:
+        rule_text = rrule_field[1].strip()
+        if rule_text:
+            try:
+                rule = rrulestr(rule_text, dtstart=dtstart)
+                occurrence_starts = rule.between(window_start - duration, window_end, inc=True)
+                for occurrence_start in occurrence_starts:
+                    if _is_excluded_occurrence(occurrence_start, excluded_occurrences_utc):
+                        continue
+                    occurrence_end = occurrence_start + duration
+                    if not _is_overlapping_window(occurrence_start, occurrence_end, window_start, window_end):
+                        continue
+                    external_id = f"{external_id_prefix}{uid};{_format_recurrence_component(occurrence_start)}"
+                    instances_by_external_id[external_id] = _ParsedEvent(
+                        external_id=external_id,
+                        start_dt=occurrence_start,
+                        end_dt=occurrence_end,
+                        title=title,
+                        external_modified_at=modified_iso,
+                    )
+            except Exception:
+                logger.warning("caldav_rrule_parse_failed uid=%s", uid)
+
+    for field in rdate_fields:
+        for occurrence_start in _parse_ical_dt_list(field, default_timezone=default_timezone):
+            if _is_excluded_occurrence(occurrence_start, excluded_occurrences_utc):
+                continue
+            occurrence_end = occurrence_start + duration
+            if not _is_overlapping_window(occurrence_start, occurrence_end, window_start, window_end):
+                continue
+            external_id = f"{external_id_prefix}{uid};{_format_recurrence_component(occurrence_start)}"
+            instances_by_external_id[external_id] = _ParsedEvent(
+                external_id=external_id,
+                start_dt=occurrence_start,
+                end_dt=occurrence_end,
+                title=title,
+                external_modified_at=modified_iso,
+            )
+
+    return sorted(instances_by_external_id.values(), key=lambda item: item.start_dt)
+
+
+def _parse_ical_dt_list(
+    field: _FieldValue,
+    *,
+    default_timezone: ZoneInfo | timezone,
+) -> list[datetime]:
+    params, raw_value = field
+    values: list[datetime] = []
+    for chunk in raw_value.split(","):
+        dt = _parse_ical_dt((params, chunk), default_timezone=default_timezone)
+        if dt is not None:
+            values.append(dt)
+    return values
+
+
+def _is_overlapping_window(start_dt: datetime, end_dt: datetime, window_start: datetime, window_end: datetime) -> bool:
+    return end_dt > window_start and start_dt < window_end
+
+
+def _is_excluded_occurrence(occurrence_start: datetime, excluded_utc: set[datetime]) -> bool:
+    return occurrence_start.astimezone(timezone.utc).replace(microsecond=0) in excluded_utc
+
+
+def _format_recurrence_component(occurrence_start: datetime) -> str:
+    return occurrence_start.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _collection_identity(collection_url: str) -> str:
+    path = urlparse(collection_url).path.rstrip("/")
+    return f"{path}|"
 
 
 def _parse_ical_dt(

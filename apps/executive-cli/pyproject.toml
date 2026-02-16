@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.18.4",
+    "python-dateutil>=2.9.0.post0",
     "rich>=14.3.2",
     "sqlalchemy>=2.0.46",
     "sqlmodel>=0.0.33",

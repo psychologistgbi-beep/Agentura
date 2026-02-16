@@ -21,6 +21,9 @@ Define and implement a TL-owned support-agent workflow that handles incidents wh
 - Explicit requirement to report:
   - involved agents;
   - observed max parallel lanes.
+- Explicit remediation verdict requirement:
+  - `root-cause elimination confirmed: YES|NO`;
+  - `EA retry authorized now: YES|NO`.
 - Handoff rule: EA must retry business-result attempt after support fix.
 
 ## Out of scope
@@ -38,6 +41,7 @@ Define and implement a TL-owned support-agent workflow that handles incidents wh
 
 - [ ] TL workflow explicitly includes support-agent incident handling.
 - [ ] Report template with mandatory agent/parallel fields is referenced.
+- [ ] Report template requires explicit remediation verdict for EA retry authorization.
 - [ ] EA retry-after-fix rule is documented.
 - [ ] Rework loop is documented when retry still fails.
 

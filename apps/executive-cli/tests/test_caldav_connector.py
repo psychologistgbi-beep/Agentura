@@ -53,28 +53,36 @@ def test_fetch_events_short_circuits_when_ctag_unchanged(monkeypatch) -> None:
         username="alice",
         password="secret",
     )
-    monkeypatch.setattr(CalDavConnector, "_resolve_collection_url", lambda self: self.base_url)
+    monkeypatch.setattr(CalDavConnector, "_resolve_collection_urls", lambda self: [self.base_url])
     monkeypatch.setattr(
         CalDavConnector,
         "_fetch_collection_props",
         lambda self, *, collection_url=None: {"ctag": "ctag-1"},
     )
 
-    def _unexpected(self, *, timezone_name: str, collection_url: str | None = None):
-        del collection_url
+    def _unexpected(
+        self,
+        *,
+        timezone_name: str,
+        window_start=None,
+        window_end=None,
+        external_id_prefix: str = "",
+        collection_url: str | None = None,
+    ):
+        del collection_url, window_start, window_end, external_id_prefix
         raise AssertionError(f"full snapshot should not be called for {timezone_name}")
 
     monkeypatch.setattr(CalDavConnector, "_fetch_full_snapshot", _unexpected)
 
     batch = connector.fetch_events(
         calendar_slug="primary",
-        cursor="ctag-1",
+        cursor="https://calendar.example/dav::ctag-1",
         cursor_kind="ctag",
         timezone_name="Europe/Moscow",
     )
 
     assert batch.events == []
-    assert batch.cursor == "ctag-1"
+    assert batch.cursor == "https://calendar.example/dav::ctag-1"
     assert batch.cursor_kind == "ctag"
     assert batch.full_snapshot is False
 
@@ -85,7 +93,7 @@ def test_fetch_events_returns_full_snapshot_when_needed(monkeypatch) -> None:
         username="alice",
         password="secret",
     )
-    monkeypatch.setattr(CalDavConnector, "_resolve_collection_url", lambda self: self.base_url)
+    monkeypatch.setattr(CalDavConnector, "_resolve_collection_urls", lambda self: [self.base_url])
     monkeypatch.setattr(
         CalDavConnector,
         "_fetch_collection_props",
@@ -94,9 +102,9 @@ def test_fetch_events_returns_full_snapshot_when_needed(monkeypatch) -> None:
     monkeypatch.setattr(
         CalDavConnector,
         "_fetch_full_snapshot",
-        lambda self, *, timezone_name, collection_url=None: [
+        lambda self, *, timezone_name, window_start=None, window_end=None, external_id_prefix="", collection_url=None: [
             RemoteCalendarEvent(
-                external_id="uid-1",
+                external_id=f"{external_id_prefix}uid-1",
                 start_dt=datetime(2026, 2, 20, 10, 0, tzinfo=timezone.utc),
                 end_dt=datetime(2026, 2, 20, 11, 0, tzinfo=timezone.utc),
                 title="Meeting",
@@ -113,9 +121,11 @@ def test_fetch_events_returns_full_snapshot_when_needed(monkeypatch) -> None:
         timezone_name="Europe/Moscow",
     )
     assert len(batch.events) == 1
-    assert batch.cursor == "ctag-2"
+    assert batch.cursor == "https://calendar.example/dav::ctag-2"
     assert batch.cursor_kind == "ctag"
     assert batch.full_snapshot is True
+    assert batch.coverage_start is not None
+    assert batch.coverage_end is not None
 
 
 def test_fetch_events_resolves_collection_from_root_endpoint(monkeypatch) -> None:
@@ -125,17 +135,7 @@ def test_fetch_events_resolves_collection_from_root_endpoint(monkeypatch) -> Non
         password="secret",
     )
     expected_collection_url = "https://caldav.yandex.ru/calendars/alice/events/"
-
-    monkeypatch.setattr(
-        CalDavConnector,
-        "_discover_calendar_home_url",
-        lambda self, root_url: "https://caldav.yandex.ru/calendars/alice/",
-    )
-    monkeypatch.setattr(
-        CalDavConnector,
-        "_discover_primary_collection_url",
-        lambda self, calendar_home_url: expected_collection_url,
-    )
+    monkeypatch.setattr(CalDavConnector, "_resolve_collection_urls", lambda self: [expected_collection_url])
 
     observed_collection_urls: list[str] = []
 
@@ -144,8 +144,16 @@ def test_fetch_events_resolves_collection_from_root_endpoint(monkeypatch) -> Non
         observed_collection_urls.append(collection_url)
         return {"ctag": "ctag-9"}
 
-    def _snapshot(self, *, timezone_name: str, collection_url: str | None = None):
-        del timezone_name
+    def _snapshot(
+        self,
+        *,
+        timezone_name: str,
+        window_start=None,
+        window_end=None,
+        external_id_prefix: str = "",
+        collection_url: str | None = None,
+    ):
+        del timezone_name, window_start, window_end, external_id_prefix
         assert collection_url is not None
         observed_collection_urls.append(collection_url)
         return []
@@ -237,6 +245,33 @@ def test_resolve_collection_url_discovers_events_collection(monkeypatch) -> None
 
     collection_url = connector._resolve_collection_url()
     assert collection_url == "https://caldav.yandex.ru/calendars/alice/events/"
+
+
+def test_resolve_collection_urls_prefers_vevent_supported_collections(monkeypatch) -> None:
+    connector = CalDavConnector(
+        base_url="https://caldav.yandex.ru",
+        username="alice",
+        password="secret",
+    )
+    monkeypatch.setattr(
+        CalDavConnector,
+        "_discover_calendar_home_url",
+        lambda self, root_url: "https://caldav.yandex.ru/calendars/alice/",
+    )
+    monkeypatch.setattr(
+        CalDavConnector,
+        "_discover_calendar_collections",
+        lambda self, home: [
+            "https://caldav.yandex.ru/calendars/alice/events-main/",
+            "https://caldav.yandex.ru/calendars/alice/events-personal/",
+        ],
+    )
+
+    urls = connector._resolve_collection_urls()
+    assert urls == [
+        "https://caldav.yandex.ru/calendars/alice/events-main/",
+        "https://caldav.yandex.ru/calendars/alice/events-personal/",
+    ]
 
 
 def test_fetch_collection_props_parses_ctag_and_sync_token(monkeypatch) -> None:
@@ -341,6 +376,57 @@ END:VCALENDAR
     assert events[0].start_dt.isoformat() == "2026-02-22T00:00:00+00:00"
     assert events[0].end_dt.isoformat() == "2026-02-23T00:00:00+00:00"
     assert events[0].title == "Long\ntext continued"
+
+
+def test_parse_ical_events_expands_weekly_rrule_in_window() -> None:
+    calendar_data = """BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:uid-weekly
+DTSTART:20260209T080000Z
+DTEND:20260209T083000Z
+SUMMARY:YFlow
+RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;INTERVAL=1
+END:VEVENT
+END:VCALENDAR
+"""
+    events = _parse_ical_events(
+        calendar_data=calendar_data,
+        default_timezone=timezone.utc,
+        window_start=datetime(2026, 2, 16, 0, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 2, 23, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert [event.external_id for event in events] == [
+        "uid-weekly;20260216T080000Z",
+        "uid-weekly;20260218T080000Z",
+        "uid-weekly;20260220T080000Z",
+    ]
+    assert [event.title for event in events] == ["YFlow", "YFlow", "YFlow"]
+
+
+def test_parse_ical_events_rrule_respects_exdate() -> None:
+    calendar_data = """BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:uid-exdate
+DTSTART:20260216T093000Z
+DTEND:20260216T100000Z
+SUMMARY:Текучка
+RRULE:FREQ=DAILY;INTERVAL=1
+EXDATE:20260217T093000Z
+END:VEVENT
+END:VCALENDAR
+"""
+    events = _parse_ical_events(
+        calendar_data=calendar_data,
+        default_timezone=timezone.utc,
+        window_start=datetime(2026, 2, 16, 0, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 2, 19, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert [event.external_id for event in events] == [
+        "uid-exdate;20260216T093000Z",
+        "uid-exdate;20260218T093000Z",
+    ]
 
 
 def test_parse_ical_events_skips_invalid_or_missing_uid() -> None:

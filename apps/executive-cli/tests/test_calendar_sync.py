@@ -246,6 +246,64 @@ def test_sync_service_soft_deletes_missing_remote_and_keeps_manual_rows(tmp_path
         assert manual.is_deleted == 0
 
 
+def test_sync_service_soft_delete_is_limited_to_coverage_window(tmp_path) -> None:
+    engine = _create_engine(tmp_path)
+
+    with Session(engine) as session:
+        calendar = _seed_primary_calendar(session)
+        session.add(
+            BusyBlock(
+                calendar_id=calendar.id,
+                start_dt=dt_to_db(datetime(2025, 12, 20, 9, 0, tzinfo=MOSCOW_TZ)),
+                end_dt=dt_to_db(datetime(2025, 12, 20, 10, 0, tzinfo=MOSCOW_TZ)),
+                title="Outside coverage",
+                source=CALDAV_SOURCE,
+                external_id="uid-old",
+                external_etag="etag-old",
+            )
+        )
+        session.add(
+            BusyBlock(
+                calendar_id=calendar.id,
+                start_dt=dt_to_db(datetime(2026, 2, 20, 11, 0, tzinfo=MOSCOW_TZ)),
+                end_dt=dt_to_db(datetime(2026, 2, 20, 12, 0, tzinfo=MOSCOW_TZ)),
+                title="Inside coverage",
+                source=CALDAV_SOURCE,
+                external_id="uid-window",
+                external_etag="etag-window",
+            )
+        )
+        session.commit()
+
+        connector = FakeConnector(
+            CalendarSyncBatch(
+                events=[],
+                cursor="ctag-new",
+                cursor_kind="ctag",
+                full_snapshot=True,
+                coverage_start=datetime(2026, 2, 16, 0, 0, tzinfo=MOSCOW_TZ),
+                coverage_end=datetime(2026, 2, 23, 0, 0, tzinfo=MOSCOW_TZ),
+            )
+        )
+        result = sync_calendar_primary(session, connector=connector)
+        assert result.soft_deleted == 1
+
+    with Session(engine) as session:
+        old_row = session.exec(
+            select(BusyBlock)
+            .where(BusyBlock.source == CALDAV_SOURCE)
+            .where(BusyBlock.external_id == "uid-old")
+        ).one()
+        window_row = session.exec(
+            select(BusyBlock)
+            .where(BusyBlock.source == CALDAV_SOURCE)
+            .where(BusyBlock.external_id == "uid-window")
+        ).one()
+
+        assert old_row.is_deleted == 0
+        assert window_row.is_deleted == 1
+
+
 def test_sync_service_does_not_advance_cursor_on_failure(tmp_path) -> None:
     engine = _create_engine(tmp_path)
 
@@ -385,4 +443,3 @@ def test_calendar_sync_command_executes_real_sync_flow(tmp_path, monkeypatch) ->
             .where(SyncState.scope == CALDAV_SCOPE_PRIMARY)
         ).one()
         assert state.cursor == "ctag-10"
-
