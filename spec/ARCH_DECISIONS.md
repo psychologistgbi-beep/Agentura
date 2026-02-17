@@ -295,3 +295,35 @@ Adopt a four-stage ingestion pipeline: Extract → Classify → Deduplicate → 
 - Tasks already auto-created remain in `tasks` table (they are valid tasks).
 - Manual `task capture` + `task capture --from-email` (R3) continue to work.
 
+---
+
+## ADR-12: Pipeline Engine & Approval Gate
+
+**Date:** 2026-02-17
+**Author:** Chief Architect
+**Status:** Proposed
+**Depends on:** ADR-09 (single writer), ADR-11 (ingestion pipeline)
+
+**Context:**
+The current ingestion pipeline (ADR-11) is a hard-coded linear function chain inside `ingest/pipeline.py`. There is no generic mechanism for reusable deterministic pipelines, universal approval gates, cross-pipeline audit, generic idempotency keys, or retry/dead-letter policies. The reengineering plan calls for a two-layer architecture (Agent Layer + Service Layer) with deterministic pipeline execution as the backbone.
+
+**Decision:**
+Introduce a Pipeline Engine (deterministic state-machine runner) and an Approval Gate (human-in-the-loop blocker) as core infrastructure. Four new tables: `pipeline_runs`, `pipeline_events`, `approval_requests`, `llm_call_log`. Full specification in `spec/ARCH_DECISIONS_ADR12.md`.
+
+Key design points:
+1. Pipeline = named sequence of typed steps (`deterministic`/`llm`/`approval`/`fan_out`), each with retry policy and idempotency key.
+2. Approval Gate = action-agnostic queue with `pending`→`approved`/`rejected`/`expired` lifecycle.
+3. Idempotency via `hash(run_id + step_name + input_hash)` — re-run after crash = no-op for completed steps.
+4. Correlation ID (UUID) propagated through all events for end-to-end tracing.
+5. LLM calls logged with token counts, latency, provider — never raw prompts (privacy).
+6. Single-writer preserved (ADR-09): pipeline engine writes to its own tables; task creation still via `task_service.create_task_record()`.
+
+**Consequences:**
+- Existing `ingest/pipeline.py` refactored to register as named pipelines on the engine.
+- `task_drafts` table preserved for backward compat; new pipelines use `approval_requests`.
+- New CLI: `execas pipeline run <name>`, `execas pipeline status`, `execas approve list|<id>|reject|batch`.
+- One new Alembic migration adding 4 tables, no changes to existing tables.
+
+**Rollback:**
+- Drop 4 new tables. Revert CLI commands. `ingest/pipeline.py` continues to work as-is.
+
