@@ -141,3 +141,42 @@ def test_execute_unknown_action_type_raises(session):
     with pytest.raises(ApprovalError, match="Unknown action_type"):
         from executive_cli.approval_gate import execute_approved
         execute_approved(session, request_id=req_id, now_iso=NOW)
+
+
+def test_execute_add_busy_block(session):
+    """Approving an add_busy_block request should create a BusyBlock row."""
+    from executive_cli.models import BusyBlock, Calendar
+
+    # Need a Calendar row because BusyBlock has a FK to calendars
+    calendar = Calendar(
+        slug="primary",
+        name="Primary",
+        timezone="UTC",
+    )
+    session.add(calendar)
+    session.flush()
+
+    req_id = request_approval(
+        session,
+        pipeline_run_id=None,
+        step_name="plan_day",
+        action_type="add_busy_block",
+        action_payload={
+            "calendar_id": calendar.id,
+            "start_dt": "2026-02-18T09:00:00",
+            "end_dt": "2026-02-18T10:00:00",
+            "title": "Morning standup",
+            "source": "manual",
+        },
+        now_iso=NOW,
+    )
+    result = approve_and_execute(session, request_id=req_id, now_iso=NOW)
+    assert result is not None
+    assert result.title == "Morning standup"
+    assert result.start_dt == "2026-02-18T09:00:00"
+    assert result.end_dt == "2026-02-18T10:00:00"
+
+    # Verify persisted in DB
+    block = session.get(BusyBlock, result.id)
+    assert block is not None
+    assert block.calendar_id == calendar.id

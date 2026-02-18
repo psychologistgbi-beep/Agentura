@@ -121,6 +121,9 @@ def execute_approved(
     if req.action_type == "create_task":
         return _execute_create_task(session, payload=payload, now_iso=now)
 
+    if req.action_type == "add_busy_block":
+        return _execute_add_busy_block(session, payload=payload, now_iso=now)
+
     raise ApprovalError(f"Unknown action_type: {req.action_type}")
 
 
@@ -170,3 +173,32 @@ def _execute_create_task(
         now_iso=now_iso,
     )
     return task
+
+def _execute_add_busy_block(
+    session: Session,
+    *,
+    payload: dict[str, Any],
+    now_iso: str,
+) -> Any:
+    """Create a BusyBlock from approval payload.
+
+    Expected payload keys:
+        start_dt   — ISO datetime string for block start
+        end_dt     — ISO datetime string for block end
+        title      — optional label
+        calendar_id — calendar FK (required)
+        source     — optional, defaults to "manual"
+    """
+    from executive_cli.models import BusyBlock
+
+    block = BusyBlock(
+        calendar_id=int(payload["calendar_id"]),
+        start_dt=payload["start_dt"],
+        end_dt=payload["end_dt"],
+        title=payload.get("title"),
+        source=payload.get("source", "manual"),
+        external_id=payload.get("external_id"),
+    )
+    session.add(block)
+    session.flush()
+    return block

@@ -1829,5 +1829,86 @@ def approve_reject_cmd(
         typer.echo(f"Rejected request #{request_id}.")
 
 
+
+
+
+@app.command("daily")
+def daily_command(
+    date_str: str | None = typer.Option(None, "--date", help="Target date YYYY-MM-DD (default: today)."),
+    email_limit: int = typer.Option(50, "--email-limit", help="Max emails to process."),
+    variant: str = typer.Option("realistic", "--variant", help="Plan variant: realistic or tight."),
+) -> None:
+    """Run full GTD daily cycle: triage emails -> pending approvals -> plan day."""
+    from executive_cli.gtd_pipeline import run_gtd_daily
+
+    target_date = _parse_date(date_str) if date_str else datetime.now().date()
+    date_iso = target_date.isoformat()
+    now = _now_iso()
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        summary = run_gtd_daily(
+            session,
+            date_iso=date_iso,
+            variant=variant,
+            email_limit=email_limit,
+            now_iso=now,
+        )
+
+    typer.echo(f"\nDaily GTD -- {date_iso}")
+    typer.echo("-" * 30)
+    typer.echo(f"Emails processed : {summary.emails_processed}")
+    typer.echo(f"Tasks created    : {summary.tasks_auto_created}")
+    typer.echo(f"Drafts pending   : {summary.drafts_created}")
+    typer.echo(f"Approval queue   : {summary.pending_approvals}")
+    typer.echo(f"Day plan blocks  : {summary.plan_blocks}")
+    if summary.pending_approvals > 0:
+        typer.echo("\nRun: execas approve batch")
+
+
+@approve_app.command("batch")
+def approve_batch(
+    limit: int = typer.Option(20, "--limit", help="Max pending approvals to process."),
+) -> None:
+    """Interactive batch review of pending approval requests."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        pending = list_pending(session)
+
+    if not pending:
+        typer.echo("No pending approvals.")
+        return
+
+    pending = pending[:limit]
+    total = len(pending)
+    accepted = rejected = skipped = 0
+
+    for i, req in enumerate(pending, 1):
+        payload = json.loads(req.action_payload_json)
+        summary = payload.get("title") or payload.get("date") or str(payload)[:60]
+        typer.echo(f"[{i}/{total}] {req.action_type} | {summary}")
+        choice = typer.prompt("Accept? [y/n/s=skip/q=quit]", default="s")
+        choice = choice.strip().lower()
+        if choice == "q":
+            break
+        now = _now_iso()
+        with Session(get_engine(ensure_directory=True)) as session:
+            if choice == "y":
+                try:
+                    approve_and_execute(session, request_id=req.id, now_iso=now)
+                    session.commit()
+                    typer.echo("  -> accepted")
+                    accepted += 1
+                except Exception as e:
+                    typer.echo(f"  -> error: {e}")
+            elif choice == "n":
+                reject_request(session, request_id=req.id, now_iso=now)
+                session.commit()
+                typer.echo("  -> rejected")
+                rejected += 1
+            else:
+                skipped += 1
+                typer.echo("  -> skipped")
+
+    typer.echo(f"Batch done: accepted={accepted} rejected={rejected} skipped={skipped}")
+
 def main() -> None:
     app()
