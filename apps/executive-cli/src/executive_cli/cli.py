@@ -1910,5 +1910,66 @@ def approve_batch(
 
     typer.echo(f"Batch done: accepted={accepted} rejected={rejected} skipped={skipped}")
 
+
+
+@app.command("dash")
+def dash_command(
+    since: str | None = typer.Option(None, "--since", help="Stats since date YYYY-MM-DD."),
+) -> None:
+    """Operational dashboard: pipeline health, LLM economy, approval queue."""
+    from executive_cli.metrics import approval_stats, llm_stats, pipeline_stats
+
+    since_iso: str | None = None
+    if since:
+        try:
+            since_iso = since + "T00:00:00"
+        except Exception:
+            pass
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        ps = pipeline_stats(session, since_iso=since_iso)
+        ls = llm_stats(session, since_iso=since_iso)
+        as_ = approval_stats(session)
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    since_str = since or "all time"
+
+    typer.echo("=" * 43)
+    typer.echo(" Agentura Operational Dashboard")
+    typer.echo(f" Since: {since_str}  |  Now: {now_str}")
+    typer.echo("=" * 43)
+
+    typer.echo("\nPIPELINES")
+    typer.echo(f"  Total runs      : {ps.total_runs}")
+    if ps.total_runs:
+        typer.echo(f"  Completed       : {ps.completed}  ({ps.completed*100//ps.total_runs}%)")
+        typer.echo(f"  Failed          : {ps.failed}  ({ps.failed*100//ps.total_runs}%)")
+        typer.echo(f"  Waiting approval: {ps.waiting_approval}")
+    typer.echo("  By pipeline:")
+    for name, count in sorted(ps.by_pipeline.items()):
+        typer.echo(f"    {name:<20}: {count}")
+
+    typer.echo("\nLLM GATEWAY")
+    typer.echo(f"  Total calls     : {ls.total_calls}")
+    if ls.total_calls:
+        ollama_pct = ls.ollama_calls * 100 // ls.total_calls
+        typer.echo(f"  Ollama (local)  : {ls.ollama_calls}  ({ollama_pct}%)  <- economy")
+        typer.echo(f"  Anthropic       : {ls.anthropic_calls}")
+        typer.echo(f"  OpenAI          : {ls.openai_calls}")
+        typer.echo(f"  Local heuristic : {ls.local_calls}")
+        typer.echo(f"  Failed          : {ls.failed_calls}")
+    if ls.avg_latency_ms is not None:
+        typer.echo(f"  Avg latency     : {ls.avg_latency_ms:.0f} ms")
+    typer.echo(f"  Total tokens    : {ls.total_tokens:,}")
+
+    typer.echo("\nAPPROVALS")
+    typer.echo(f"  Pending now     : {as_.pending}")
+    typer.echo(f"  Approved today  : {as_.approved_today}")
+    typer.echo(f"  Rejected today  : {as_.rejected_today}")
+
+    if as_.pending > 0:
+        typer.echo(f"\nRun `execas approve batch` to process {as_.pending} pending approvals.")
+    typer.echo("=" * 43)
+
 def main() -> None:
     app()

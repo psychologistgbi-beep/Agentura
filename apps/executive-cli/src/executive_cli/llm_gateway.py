@@ -101,7 +101,8 @@ def call_llm(
 
             # Parse JSON if requested
             if parse_json and response.text:
-                parsed = _parse_json_response(response.text)
+                sanitised_text = _sanitise_llm_output(response.text)
+                parsed = _parse_json_response(sanitised_text)
                 response = LLMResponse(
                     text=response.text,
                     parsed=parsed,
@@ -387,6 +388,16 @@ def _call_local(*, prompt: str) -> LLMResponse:
 
 
 # --- JSON parsing ---
+
+
+def _sanitise_llm_output(text: str) -> str:
+    """Strip control characters and truncate to 32 KB."""
+    # Remove null bytes and control chars except newline/tab
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    max_bytes = 32 * 1024
+    if len(cleaned.encode()) > max_bytes:
+        cleaned = cleaned.encode()[:max_bytes].decode('utf-8', errors='ignore')
+    return cleaned
 
 
 def _parse_json_response(text: str) -> dict[str, Any] | list[Any] | None:
