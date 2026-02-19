@@ -74,34 +74,53 @@
 
 ## 3. Миграция данных
 
-### SQLite schema migration
+**Решение: миграцию не делаем. Чистый старт.**
 
-**Стратегия:** новая БД. Не Alembic migration, а `execas init` создаёт свежую схему.
+v2 стартует с пустой PostgreSQL. Данные из v1 SQLite не переносятся.
 
-**Причина:** 10 таблиц удаляется, 2 переименовываются, CHECK constraints меняются. Alembic migration будет сложнее, чем свежая схема.
+Причины:
+- Schema принципиально отличается (14 таблиц вместо 22, PostgreSQL вместо SQLite)
+- Объём данных v1 минимален
+- Чистый старт проще и надёжнее
 
-### Перенос данных пользователя
+### База данных v2: PostgreSQL в Docker
 
-| Данные | Действие | Инструмент |
-|--------|----------|------------|
-| `tasks` | Export → import | `sqlite3` CLI: `.dump tasks` из v1 → `INSERT` в v2 |
-| `busy_blocks` | Export → import | аналогично |
-| `areas`, `projects` | Export → import | аналогично |
-| `settings` | Manual re-create | `execas init` создаёт defaults, пользователь настраивает |
-| `emails` | Re-fetch | IMAP sync заново (headers only, быстро) |
-| `task_drafts` | Drop | Pending drafts из v1 irrelevant для v2 |
-| `llm_call_log` | Drop | Лог данные, не бизнес-данные |
-| `ingest_log` | Drop | Лог данные |
-| Pipeline tables | Drop | Удалены из schema |
+```yaml
+# docker-compose.yml
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: execas
+      POSTGRES_USER: execas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
 
-**SHOULD:** скрипт `scripts/migrate_v1_to_v2.py`:
-1. Open v1 sqlite
-2. Export tasks, busy_blocks, areas, projects as JSON
-3. Open v2 sqlite (after `execas init`)
-4. Insert exported data
-5. Print summary
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: execas
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
 
-**MUST:** скрипт НЕ обязателен для MVP. Manual `sqlite3` export/import = достаточно.
+volumes:
+  pgdata:
+  n8n_data:
+```
+
+**MUST:** `execas init` создаёт схему через Alembic migrations (PostgreSQL).
+**MUST:** для тестов — in-memory SQLite (`sqlite://`). SQLModel совместим с обоими backends.
 
 ## 4. План по неделям
 
@@ -109,8 +128,9 @@
 
 | День | Задача | Артефакт | Done criteria |
 |------|--------|----------|---------------|
-| 1 | Новый `models.py` (12 таблиц) | `models.py` < 200 LOC | `execas init` создаёт все таблицы, тесты проходят |
-| 1 | Новый `db.py` | `db.py` < 60 LOC | engine init + settings CRUD |
+| 1 | Docker Compose (PostgreSQL + n8n) | `docker-compose.yml` | `docker compose up -d` → PostgreSQL + n8n running |
+| 1 | Новый `models.py` (14 таблиц) | `models.py` < 200 LOC | `execas init` создаёт все таблицы в PostgreSQL, тесты проходят |
+| 1 | Новый `db.py` | `db.py` < 80 LOC | engine init + settings CRUD + PostgreSQL/SQLite switch |
 | 2 | Copy `task_service.py` + tests | 81 LOC + tests | `create_task_record()` работает, coverage ≥ 90% |
 | 2 | Copy `connectors/imap.py` | ~250 LOC | fetch_headers() работает с mock |
 | 3 | Rewrite `llm_gateway.py` | < 250 LOC | call_llm() с Ollama + fallback, coverage ≥ 70% |
@@ -145,7 +165,7 @@
 | 4 | Integration test: real IMAP (Yandex) | Manual test log | 10 emails → tasks/drafts в DB |
 | 5 | Integration test: real Ollama | Manual test log | extractor → valid JSON output |
 
-**Milestone W3:** n8n workflows deployed. Real IMAP → real Ollama → tasks в SQLite. Daily pipeline runs unattended.
+**Milestone W3:** n8n workflows deployed. Real IMAP → real Ollama → tasks в PostgreSQL. Daily pipeline runs unattended.
 
 ### Неделя 4: Hardening + Cleanup
 
@@ -182,20 +202,21 @@
 | IMAP connector ломается на edge cases (encodings, empty subjects) | Medium | Medium | Copy из v1 = battle-tested. Добавить encoding tests |
 | planner.py слишком связан с v1 models | Low | High | Copy early (Week 1 Day 5), адаптировать imports |
 | n8n не установлен / несовместимая версия | Low | Medium | n8n self-hosted via Docker, pin version |
-| Данные из v1 не импортируются корректно | Low | Low | Manual sqlite3 dump/import. Всего ~100-500 rows |
+| PostgreSQL Docker не стартует / port conflict | Low | Low | Pin postgres:17-alpine, check port 5432 free |
 
 ## 7. Rollback plan
 
 Если v2 не достигает Done criteria к концу недели 4:
 
 1. v1 код остаётся в git history (не удаляется до milestone W4)
-2. v1 SQLite файл сохраняется как `execas_v1_backup.sqlite`
+2. v1 SQLite файл сохраняется (информационно, миграция не планируется)
 3. Fallback: использовать v1 + manual task capture до fix
 
 **MUST NOT:** удалять v1 код из git раньше milestone W2 (CLI complete).
 
 ## Open questions
 
-1. Есть ли n8n instance? Какая версия? ASSUMPTION: нет, поставим n8n self-hosted (Docker) на Week 3.
-2. Нужен ли скрипт миграции данных или ручной sqlite3 dump достаточен? ASSUMPTION: ручной достаточен (< 500 rows).
-3. Кто тестирует real IMAP integration на Week 3? ASSUMPTION: разработчик с доступом к Yandex аккаунту.
+Нет. Все решения приняты:
+1. n8n — нет, Docker Compose на неделе 3 (вместе с PostgreSQL)
+2. Миграция данных — не делаем, чистый старт
+3. Real IMAP тестирование — разработчик с доступом к Yandex аккаунту

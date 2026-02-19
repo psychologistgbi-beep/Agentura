@@ -1,4 +1,4 @@
-# D4. DATA_MODEL — SQLite ≤ 12 таблиц
+# D4. DATA_MODEL — PostgreSQL (Docker), ≤ 14 таблиц
 
 ## 1. Таблицы
 
@@ -29,25 +29,53 @@
 | `areas` | Зоны ответственности | `id` | permanent |
 | `projects` | Проекты (→ area) | `id` | permanent |
 
-**Total: 12 таблиц.**
+**Core + Supporting + Reference: 12 таблиц.**
+
+### Planner tables (подтверждено: сохраняем)
+
+| Table | Назначение | PK | Retention |
+|-------|-----------|-----|-----------|
+| `day_plans` | Результат planner на дату | `id` | permanent |
+| `time_blocks` | Слоты в day_plan | `id` | permanent |
+
+**Total: 14 таблиц** (12 + 2 planner).
 
 ### Исключено из MVP (было в v1)
 
 | Таблица v1 | Причина удаления |
 |-----------|------------------|
 | `commitments` | Переусложнение для MVP. Задачи привязываются к project, не к commitment |
-| `day_plans` + `time_blocks` | Planner возвращает результат в CLI, не обязательно сохранять в DB [ASSUMPTION: сохраняем для истории → оставляем если planner.py уже пишет] |
 | `people`, `decisions` | People/decisions search — вторичная функция, не MVP |
 | `weekly_reviews` | n8n + LLM может генерировать отчёт без отдельной таблицы |
-| `sync_state` | Нужна для IMAP cursor → **оставляем** в `settings` как `key=imap_last_uid` |
+| `sync_state` | IMAP cursor → в `settings` как `key=imap_last_uid` |
 | `pipeline_runs`, `pipeline_events` | Pipeline Engine удалён. n8n = оркестратор |
 | `approval_requests` | Заменён на `task_drafts.status = pending/approved/rejected` |
 
-**Ревизия:** если planner требует day_plans+time_blocks для работы, оставляем.
+### Решение: PostgreSQL в Docker
 
-### ASSUMPTION
+**Причина перехода с SQLite:** пользователь считает, что БД стоит развернуть как отдельный сервис.
 
-`day_plans` и `time_blocks` оставляем (planner пишет туда). Итого 14 таблиц с ними. Это допустимо.
+**Docker Compose:**
+```yaml
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: execas
+      POSTGRES_USER: execas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+volumes:
+  pgdata:
+```
+
+**SQLModel compatibility:** SQLModel поддерживает PostgreSQL через `create_engine("postgresql+psycopg2://...")`. Изменения в `db.py` минимальны — меняется только connection string.
+
+**MUST:** для локальной разработки и тестов — in-memory SQLite (`sqlite://`). PostgreSQL = production.
+**MUST:** Alembic migrations работают с обоими backends.
 
 ## 2. Ключевые модели (сохраняем из v1)
 
@@ -104,5 +132,8 @@ UNIQUE: (channel, source_ref)
 
 ## Open questions
 
-1. Оставляем ли `day_plans` + `time_blocks`? (ASSUMPTION: да, planner их пишет)
-2. Оставляем ли `sync_state` как отдельную таблицу или key в `settings`?
+Нет. Все решения приняты:
+- `day_plans` + `time_blocks` — сохраняем (14 таблиц total)
+- `sync_state` — в `settings` как key
+- PostgreSQL в Docker для production
+- Миграция данных: не делаем, чистый старт

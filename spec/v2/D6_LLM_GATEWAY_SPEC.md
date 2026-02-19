@@ -42,17 +42,19 @@ class LLMResponse:
 
 ## 4. Fallback chain
 
+**Policy:** использовать локальную LLM только для хорошо описанных простых задач. Тщательная приёмка результата обязательна.
+
 Порядок при `provider=None`:
 
 ```
-1. ollama (localhost:11434, model=qwen2.5:7b, timeout=30s)
+1. ollama (localhost:11434, model=qwen2.5:7b, timeout=30s, RAM=18GB)
      ↓ fail
-2. anthropic (api.anthropic.com, key=ANTHROPIC_API_KEY, model=claude-sonnet-4-5-20250929)
-     ↓ fail or no key
-3. local heuristic (keyword extraction, zero LLM, zero quality)
+2. local heuristic (keyword extraction, zero LLM, zero quality)
      ↓ parse_json + fail to parse
-4. raise LLMGatewayError("All providers failed: ...")
+3. raise LLMGatewayError("All providers failed: ...")
 ```
+
+**Cloud API (Anthropic) не используется для задач ассистента.** Ключ доступен через Claude Code подписку, но предназначен для разработки, не для runtime extraction.
 
 Если `provider` задан явно — только этот провайдер, без fallback.
 
@@ -98,16 +100,16 @@ text:
 | Max prompt size | 4 KB | MUST truncate перед отправкой |
 | Max response size | 32 KB | MUST truncate после получения |
 | Timeout per call | 30s (configurable) | MUST в `urlopen(timeout=)` |
-| Daily call budget | 200 calls | SHOULD log warning при >200. MUST NOT block |
+| Daily call budget | 50 calls | SHOULD log warning при >50. MUST NOT block |
 | Retry | 0 (n8n retries workflow) | MUST NOT retry внутри gateway |
 
 ## 7. Кеширование
 
 **MVP: нет кеша.** Каждый вызов = новый LLM request.
 
-ASSUMPTION: при 50-100 emails/day и 1 LLM call per email — 50-100 calls/day. Ollama local = zero cost. Кеш не нужен.
+При ~20 emails/day и 1 LLM call per email — ~20 calls/day. Ollama local = zero cost. Кеш не нужен.
 
-SHOULD: добавить `prompt_hash` dedup позже, если объём вырастет до 500+/day.
+SHOULD: добавить `prompt_hash` dedup позже, если объём вырастет до 200+/day.
 
 ## 8. Redaction (privacy)
 

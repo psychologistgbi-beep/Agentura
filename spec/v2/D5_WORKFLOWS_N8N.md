@@ -95,13 +95,14 @@ ASSUMPTION: `execas approve batch --limit 0` prints "No pending approvals." or c
 | Max retries | 2 |
 | Retry delay | 5 min (exponential: 5, 10) |
 | Timeout per step | 120s |
-| Alert channel | Telegram bot (ASSUMPTION) |
+| Alert channel | Telegram бот (отдельный аккаунт ассистента) |
 | Error handling | n8n catch → alert → stop workflow |
 | Secrets | n8n credentials store, не env vars внутри workflow JSON |
 | Execution log | n8n built-in, retention 30 days |
 
 ## Open questions
 
-1. Есть ли уже n8n instance? Какая версия?
-2. Alert channel: Telegram bot или email? Или оба?
-3. Нужен ли webhook для external trigger ingest, или только cron достаточно?
+Нет. Все решения приняты:
+1. n8n — нет, поставим Docker на неделе 3
+2. Alert channel — Telegram бот (отдельный аккаунт для ассистента)
+3. Webhook — default: cron + CLI. Webhook можно добавить позже
