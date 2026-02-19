@@ -67,6 +67,21 @@ from executive_cli.sync_service import (
     sync_mailbox,
 )
 from executive_cli.task_service import TaskServiceError, create_task_record
+from executive_cli.pipeline_engine import (
+    PipelineError,
+    get_pipeline_status,
+    list_pipeline_runs,
+    run_pipeline,
+    resume_pipeline,
+    get_registered_pipelines,
+)
+from executive_cli.approval_gate import (
+    ApprovalError,
+    approve as approve_request,
+    approve_and_execute,
+    list_pending,
+    reject as reject_request,
+)
 from executive_cli.secret_store import (
     DEFAULT_CALDAV_KEYCHAIN_SERVICE,
     DEFAULT_IMAP_KEYCHAIN_SERVICE,
@@ -97,6 +112,8 @@ review_app = typer.Typer(help="Weekly review reports.")
 sync_app = typer.Typer(help="Run combined external sync orchestration.")
 ingest_app = typer.Typer(help="Ingest task candidates from meetings, dialogues, and email.")
 secret_app = typer.Typer(help="Manage secure secret storage (macOS Keychain).")
+pipeline_app = typer.Typer(help="Run and monitor deterministic pipelines.")
+approve_app = typer.Typer(help="Manage approval requests for side-effect actions.")
 app.add_typer(area_app, name="area")
 app.add_typer(busy_app, name="busy")
 app.add_typer(calendar_app, name="calendar")
@@ -112,6 +129,8 @@ app.add_typer(ingest_app, name="ingest")
 app.add_typer(secret_app, name="secret")
 app.add_typer(task_app, name="task")
 app.add_typer(plan_app, name="plan")
+app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(approve_app, name="approve")
 
 
 def _parse_date(value: str) -> datetime.date:
@@ -1661,6 +1680,296 @@ def review_scrum_metrics(
         path = append_metrics_history(record)
         typer.echo(f'history_saved="{path}"')
 
+
+# --- Pipeline commands (ADR-12) ---
+
+
+@pipeline_app.command("run")
+def pipeline_run_cmd(
+    name: str = typer.Argument(..., help="Pipeline name to execute."),
+    input_json: str = typer.Option(None, "--input-json", help="Path to JSON file with pipeline input."),
+) -> None:
+    """Run a named pipeline."""
+    engine = get_engine()
+    input_data: dict = {}
+    if input_json:
+        import json as _json
+        from pathlib import Path
+
+        path = Path(input_json).expanduser()
+        if not path.exists():
+            typer.echo(f"Input file not found: {input_json}", err=True)
+            raise typer.Exit(1)
+        input_data = _json.loads(path.read_text())
+
+    with Session(engine) as session:
+        try:
+            result = run_pipeline(session, pipeline_name=name, input_data=input_data, now_iso=_now_iso())
+            session.commit()
+        except PipelineError as exc:
+            typer.echo(f"Pipeline error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        typer.echo(f"run_id={result.run_id}")
+        typer.echo(f"correlation_id={result.correlation_id}")
+        typer.echo(f"status={result.status}")
+        if result.error:
+            typer.echo(f"error={result.error}")
+        if result.pending_approval_id:
+            typer.echo(f"pending_approval_id={result.pending_approval_id}")
+
+
+@pipeline_app.command("status")
+def pipeline_status_cmd(
+    run_id: int = typer.Argument(..., help="Pipeline run ID."),
+) -> None:
+    """Show status of a pipeline run."""
+    engine = get_engine()
+    with Session(engine) as session:
+        try:
+            info = get_pipeline_status(session, run_id=run_id)
+        except PipelineError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        typer.echo(f"pipeline={info.pipeline_name}")
+        typer.echo(f"status={info.status}")
+        typer.echo(f"correlation_id={info.correlation_id}")
+        typer.echo(f"created_at={info.created_at}")
+        if info.error:
+            typer.echo(f"error={info.error}")
+        typer.echo(f"steps={len(info.events)}")
+        for ev in info.events:
+            duration = f" ({ev['duration_ms']}ms)" if ev.get("duration_ms") else ""
+            error = f" error={ev['error']}" if ev.get("error") else ""
+            typer.echo(f"  {ev['step_name']}: {ev['status']} [{ev['step_type']}] attempt={ev['attempt']}{duration}{error}")
+
+
+@pipeline_app.command("list")
+def pipeline_list_cmd(
+    status: str = typer.Option(None, "--status", help="Filter by status."),
+    limit: int = typer.Option(20, "--limit", help="Max results."),
+) -> None:
+    """List recent pipeline runs."""
+    engine = get_engine()
+    with Session(engine) as session:
+        runs = list_pipeline_runs(session, status=status, limit=limit)
+        if not runs:
+            typer.echo("No pipeline runs found.")
+            return
+        for r in runs:
+            typer.echo(f"  {r.run_id}: {r.pipeline_name} [{r.status}] {r.created_at}")
+
+
+@pipeline_app.command("pipelines")
+def pipeline_registered_cmd() -> None:
+    """List registered pipeline definitions."""
+    names = get_registered_pipelines()
+    if not names:
+        typer.echo("No pipelines registered.")
+        return
+    for name in names:
+        typer.echo(f"  {name}")
+
+
+# --- Approval commands (ADR-12) ---
+
+
+@approve_app.command("list")
+def approve_list_cmd() -> None:
+    """List pending approval requests."""
+    engine = get_engine()
+    with Session(engine) as session:
+        pending = list_pending(session)
+        if not pending:
+            typer.echo("No pending approvals.")
+            return
+        for req in pending:
+            import json as _json
+
+            payload = _json.loads(req.action_payload_json) if req.action_payload_json else {}
+            summary = payload.get("title", payload.get("action", req.action_type))
+            typer.echo(f"  #{req.id}: [{req.action_type}] {summary} (created {req.created_at})")
+
+
+@approve_app.command("accept")
+def approve_accept_cmd(
+    request_id: int = typer.Argument(..., help="Approval request ID."),
+) -> None:
+    """Approve and execute a pending request."""
+    engine = get_engine()
+    with Session(engine) as session:
+        try:
+            result = approve_and_execute(session, request_id=request_id, now_iso=_now_iso())
+            session.commit()
+        except ApprovalError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        if hasattr(result, "id") and hasattr(result, "title"):
+            typer.echo(f"Approved. Created task #{result.id}: {result.title}")
+        else:
+            typer.echo("Approved and executed.")
+
+
+@approve_app.command("reject")
+def approve_reject_cmd(
+    request_id: int = typer.Argument(..., help="Approval request ID."),
+) -> None:
+    """Reject a pending approval request."""
+    engine = get_engine()
+    with Session(engine) as session:
+        try:
+            reject_request(session, request_id=request_id, now_iso=_now_iso())
+            session.commit()
+        except ApprovalError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        typer.echo(f"Rejected request #{request_id}.")
+
+
+
+
+
+@app.command("daily")
+def daily_command(
+    date_str: str | None = typer.Option(None, "--date", help="Target date YYYY-MM-DD (default: today)."),
+    email_limit: int = typer.Option(50, "--email-limit", help="Max emails to process."),
+    variant: str = typer.Option("realistic", "--variant", help="Plan variant: realistic or tight."),
+) -> None:
+    """Run full GTD daily cycle: triage emails -> pending approvals -> plan day."""
+    from executive_cli.gtd_pipeline import run_gtd_daily
+
+    target_date = _parse_date(date_str) if date_str else datetime.now().date()
+    date_iso = target_date.isoformat()
+    now = _now_iso()
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        summary = run_gtd_daily(
+            session,
+            date_iso=date_iso,
+            variant=variant,
+            email_limit=email_limit,
+            now_iso=now,
+        )
+
+    typer.echo(f"\nDaily GTD -- {date_iso}")
+    typer.echo("-" * 30)
+    typer.echo(f"Emails processed : {summary.emails_processed}")
+    typer.echo(f"Tasks created    : {summary.tasks_auto_created}")
+    typer.echo(f"Drafts pending   : {summary.drafts_created}")
+    typer.echo(f"Approval queue   : {summary.pending_approvals}")
+    typer.echo(f"Day plan blocks  : {summary.plan_blocks}")
+    if summary.pending_approvals > 0:
+        typer.echo("\nRun: execas approve batch")
+
+
+@approve_app.command("batch")
+def approve_batch(
+    limit: int = typer.Option(20, "--limit", help="Max pending approvals to process."),
+) -> None:
+    """Interactive batch review of pending approval requests."""
+    with Session(get_engine(ensure_directory=True)) as session:
+        pending = list_pending(session)
+
+    if not pending:
+        typer.echo("No pending approvals.")
+        return
+
+    pending = pending[:limit]
+    total = len(pending)
+    accepted = rejected = skipped = 0
+
+    for i, req in enumerate(pending, 1):
+        payload = json.loads(req.action_payload_json)
+        summary = payload.get("title") or payload.get("date") or str(payload)[:60]
+        typer.echo(f"[{i}/{total}] {req.action_type} | {summary}")
+        choice = typer.prompt("Accept? [y/n/s=skip/q=quit]", default="s")
+        choice = choice.strip().lower()
+        if choice == "q":
+            break
+        now = _now_iso()
+        with Session(get_engine(ensure_directory=True)) as session:
+            if choice == "y":
+                try:
+                    approve_and_execute(session, request_id=req.id, now_iso=now)
+                    session.commit()
+                    typer.echo("  -> accepted")
+                    accepted += 1
+                except Exception as e:
+                    typer.echo(f"  -> error: {e}")
+            elif choice == "n":
+                reject_request(session, request_id=req.id, now_iso=now)
+                session.commit()
+                typer.echo("  -> rejected")
+                rejected += 1
+            else:
+                skipped += 1
+                typer.echo("  -> skipped")
+
+    typer.echo(f"Batch done: accepted={accepted} rejected={rejected} skipped={skipped}")
+
+
+
+@app.command("dash")
+def dash_command(
+    since: str | None = typer.Option(None, "--since", help="Stats since date YYYY-MM-DD."),
+) -> None:
+    """Operational dashboard: pipeline health, LLM economy, approval queue."""
+    from executive_cli.metrics import approval_stats, llm_stats, pipeline_stats
+
+    since_iso: str | None = None
+    if since:
+        try:
+            since_iso = since + "T00:00:00"
+        except Exception:
+            pass
+
+    with Session(get_engine(ensure_directory=True)) as session:
+        ps = pipeline_stats(session, since_iso=since_iso)
+        ls = llm_stats(session, since_iso=since_iso)
+        as_ = approval_stats(session)
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    since_str = since or "all time"
+
+    typer.echo("=" * 43)
+    typer.echo(" Agentura Operational Dashboard")
+    typer.echo(f" Since: {since_str}  |  Now: {now_str}")
+    typer.echo("=" * 43)
+
+    typer.echo("\nPIPELINES")
+    typer.echo(f"  Total runs      : {ps.total_runs}")
+    if ps.total_runs:
+        typer.echo(f"  Completed       : {ps.completed}  ({ps.completed*100//ps.total_runs}%)")
+        typer.echo(f"  Failed          : {ps.failed}  ({ps.failed*100//ps.total_runs}%)")
+        typer.echo(f"  Waiting approval: {ps.waiting_approval}")
+    typer.echo("  By pipeline:")
+    for name, count in sorted(ps.by_pipeline.items()):
+        typer.echo(f"    {name:<20}: {count}")
+
+    typer.echo("\nLLM GATEWAY")
+    typer.echo(f"  Total calls     : {ls.total_calls}")
+    if ls.total_calls:
+        ollama_pct = ls.ollama_calls * 100 // ls.total_calls
+        typer.echo(f"  Ollama (local)  : {ls.ollama_calls}  ({ollama_pct}%)  <- economy")
+        typer.echo(f"  Anthropic       : {ls.anthropic_calls}")
+        typer.echo(f"  OpenAI          : {ls.openai_calls}")
+        typer.echo(f"  Local heuristic : {ls.local_calls}")
+        typer.echo(f"  Failed          : {ls.failed_calls}")
+    if ls.avg_latency_ms is not None:
+        typer.echo(f"  Avg latency     : {ls.avg_latency_ms:.0f} ms")
+    typer.echo(f"  Total tokens    : {ls.total_tokens:,}")
+
+    typer.echo("\nAPPROVALS")
+    typer.echo(f"  Pending now     : {as_.pending}")
+    typer.echo(f"  Approved today  : {as_.approved_today}")
+    typer.echo(f"  Rejected today  : {as_.rejected_today}")
+
+    if as_.pending > 0:
+        typer.echo(f"\nRun `execas approve batch` to process {as_.pending} pending approvals.")
+    typer.echo("=" * 43)
 
 def main() -> None:
     app()

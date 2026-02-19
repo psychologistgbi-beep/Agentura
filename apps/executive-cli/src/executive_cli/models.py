@@ -287,3 +287,69 @@ class IngestLog(SQLModel, table=True):
     confidence: float | None = None
     details_json: str | None = None
     created_at: str
+
+
+# --- ADR-12: Pipeline Engine & Approval Gate ---
+
+
+class PipelineRun(SQLModel, table=True):
+    __tablename__ = "pipeline_runs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    pipeline_name: str = Field(index=True)
+    status: str = Field(default="pending")  # pending|running|completed|failed|waiting_approval
+    input_hash: str | None = None
+    correlation_id: str = Field(unique=True)
+    input_json: str | None = None
+    output_json: str | None = None
+    error: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class PipelineEvent(SQLModel, table=True):
+    __tablename__ = "pipeline_events"
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(foreign_key="pipeline_runs.id")
+    step_name: str
+    step_type: str  # deterministic|llm|approval|fan_out
+    status: str = Field(default="pending")  # pending|running|completed|failed|retrying|waiting_approval|approved|rejected
+    input_hash: str | None = None
+    output_hash: str | None = None
+    idempotency_key: str | None = Field(default=None, unique=True)
+    attempt: int = Field(default=1)
+    error: str | None = None
+    duration_ms: int | None = None
+    created_at: str
+
+
+class ApprovalRequest(SQLModel, table=True):
+    __tablename__ = "approval_requests"
+
+    id: int | None = Field(default=None, primary_key=True)
+    pipeline_run_id: int | None = Field(default=None, foreign_key="pipeline_runs.id", index=True)
+    step_name: str | None = None
+    action_type: str = Field(index=True)  # create_task|send_message|add_busy_block|modify_task
+    action_payload_json: str
+    context_json: str | None = None
+    status: str = Field(default="pending")  # pending|approved|rejected|expired
+    decided_at: str | None = None
+    decided_by: str | None = Field(default="user")
+    created_at: str
+
+
+class LLMCallLog(SQLModel, table=True):
+    __tablename__ = "llm_call_log"
+
+    id: int | None = Field(default=None, primary_key=True)
+    correlation_id: str | None = Field(default=None, index=True)
+    provider: str
+    model: str
+    prompt_hash: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    latency_ms: int | None = None
+    status: str  # success|error|timeout|fallback
+    error: str | None = None
+    created_at: str
